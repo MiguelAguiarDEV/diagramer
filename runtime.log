@@ -1,2 +1,0 @@
-time=2026-05-06T21:05:32.783Z level=INFO msg=listening addr=100.71.66.54:7777
-time=2026-05-06T21:05:33.414Z level=INFO msg=http method=GET path=/api/health status=200 dur_ms=0
