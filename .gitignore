@@ -1,5 +1,5 @@
 # Go
-diagramer
+/diagramer
 *.exe
 *.test
 *.out
