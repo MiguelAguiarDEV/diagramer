@@ -165,6 +165,15 @@ input:focus {
   flex: 0 1 320px;
   font-weight: 500;
 }
+.canvas-header .add-node {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  font-weight: 500;
+}
+.canvas-header .add-node:hover {
+  background: var(--accent-h);
+}
 .canvas-header .hint {
   margin-left: auto;
   color: var(--muted);

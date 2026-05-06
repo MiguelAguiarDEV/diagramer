@@ -163,28 +163,66 @@ export function DiagramCanvas({ id, onBack }: Props) {
     [],
   )
 
-  // Double-click on the pane creates a new node at the click point.
-  const onPaneDoubleClick = useCallback(
-    (event: React.MouseEvent) => {
-      const wrapper = wrapperRef.current
-      if (!wrapper) return
+  // Add a node at a flow-coordinates position.
+  const addNodeAt = useCallback((flowX: number, flowY: number, label = 'New') => {
+    setNodes((nds) =>
+      nds.concat({
+        id: nid(),
+        position: { x: flowX, y: flowY },
+        data: { label },
+        type: 'default',
+      }),
+    )
+  }, [])
+
+  // Click on the "+ Node" button → drop near the visible center of the canvas.
+  const addNodeAtCenter = useCallback(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper) {
+      addNodeAt(0, 0)
+      return
+    }
+    const bounds = wrapper.getBoundingClientRect()
+    const cx = bounds.width / 2
+    const cy = bounds.height / 2
+    // Convert screen → flow coords using the current viewport.
+    const x = (cx - viewport.x) / viewport.zoom
+    const y = (cy - viewport.y) / viewport.zoom
+    // Slight random offset so consecutive clicks don't pile up exactly.
+    const jitter = () => (Math.random() - 0.5) * 30
+    addNodeAt(x + jitter(), y + jitter())
+  }, [viewport, addNodeAt])
+
+  // Double-click on the pane → drop a node at the click point. Use native
+  // dblclick on the wrapper because React Flow swallows synthetic events
+  // inside the canvas in some setups.
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper || !loaded) return
+    const onDbl = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      // Only fire on the empty pane, not on nodes/edges/handles/controls.
+      if (!target) return
+      if (
+        target.closest('.react-flow__node') ||
+        target.closest('.react-flow__edge') ||
+        target.closest('.react-flow__handle') ||
+        target.closest('.react-flow__controls') ||
+        target.closest('.react-flow__minimap') ||
+        target.closest('.canvas-header')
+      ) {
+        return
+      }
       const bounds = wrapper.getBoundingClientRect()
       const mx = event.clientX - bounds.left
       const my = event.clientY - bounds.top
       const x = (mx - viewport.x) / viewport.zoom
       const y = (my - viewport.y) / viewport.zoom
-      const id = nid()
-      setNodes((nds) =>
-        nds.concat({
-          id,
-          position: { x, y },
-          data: { label: 'New' },
-          type: 'default',
-        }),
-      )
-    },
-    [viewport],
-  )
+      addNodeAt(x, y)
+    }
+    wrapper.addEventListener('dblclick', onDbl)
+    return () => wrapper.removeEventListener('dblclick', onDbl)
+  }, [loaded, viewport, addNodeAt])
 
   // Inline-rename a node label on double-click.
   const onNodeDoubleClick = useCallback((_e: React.MouseEvent, node: Node) => {
@@ -229,9 +267,12 @@ export function DiagramCanvas({ id, onBack }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+        <button className="add-node" onClick={addNodeAtCenter} title="Add a new node">
+          + Node
+        </button>
         <SaveIndicator state={saveState} />
         <span className="hint" title="Tips">
-          dblclick canvas: new node · dblclick node: rename · drag handles: connect
+          dblclick canvas → node · dblclick node → rename · drag handle → connect · Del → remove
         </span>
       </header>
 
@@ -245,7 +286,6 @@ export function DiagramCanvas({ id, onBack }: Props) {
         onViewportChange={setViewport}
         onPaneClick={() => {}}
         onPaneContextMenu={(e) => e.preventDefault()}
-        onDoubleClick={onPaneDoubleClick}
         onNodeDoubleClick={onNodeDoubleClick}
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={['Delete', 'Backspace']}
