@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,8 +29,7 @@ func main() {
 
 	svc := diagrams.NewService(repo)
 
-	var assets http.Handler // nil until Phase 6
-	srv := server.New(*addr, svc, assets, logger)
+	srv := server.New(*addr, svc, staticHandler(), logger)
 
 	go func() {
 		if err := srv.Start(); err != nil {

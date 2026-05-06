@@ -68,15 +68,31 @@ func (h *apiHandlers) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
+// updateRequest accepts only fields the client may set. Timestamps and
+// CreatedAt are managed server-side and intentionally absent so clients
+// can't send empty strings or wrong values.
+type updateRequest struct {
+	Name     string             `json:"name"`
+	Nodes    []diagrams.Node    `json:"nodes"`
+	Edges    []diagrams.Edge    `json:"edges"`
+	Viewport diagrams.Viewport  `json:"viewport"`
+}
+
 func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var d diagrams.Diagram
-	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+	var req updateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	d.ID = id // path is authoritative
-	updated, err := h.svc.Update(r.Context(), &d)
+	d := &diagrams.Diagram{
+		ID:       id,
+		Name:     req.Name,
+		Nodes:    req.Nodes,
+		Edges:    req.Edges,
+		Viewport: req.Viewport,
+	}
+	updated, err := h.svc.Update(r.Context(), d)
 	if err != nil {
 		h.writeError(w, err)
 		return
