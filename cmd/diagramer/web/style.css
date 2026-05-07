@@ -80,4 +80,13 @@ body {
   stroke: #6b7280;
   stroke-width: 1.5;
   fill: none;
+  pointer-events: none;
 }
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  cursor: pointer;
+}
+.edge-group:hover .edge { stroke: #93c5fd; }
+.edge-group.selected .edge { stroke: #2563eb; stroke-width: 2.5; }

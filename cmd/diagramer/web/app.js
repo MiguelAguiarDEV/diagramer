@@ -23,6 +23,7 @@ const statusEl = document.getElementById("status");
 
 let diagram = null;
 let selectedId = null;
+let selectedEdgeId = null;
 let connecting = false;
 let connectSource = null;
 let dragging = null;
@@ -111,12 +112,22 @@ function render() {
     if (!a || !b) continue;
     const pa = sideAnchor(a, center(b));
     const pb = sideAnchor(b, center(a));
-    const line = svg("line", {
-      class: "edge",
-      "marker-end": "url(#arrow)",
-      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+    const isSel = e.id === selectedEdgeId;
+    const eg = svg("g", {
+      class: "edge-group" + (isSel ? " selected" : ""),
+      "data-id": e.id,
     });
-    edgesLayer.appendChild(line);
+    // Invisible thick hit area to make edges easy to click.
+    eg.appendChild(svg("line", {
+      class: "edge-hit",
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+    }));
+    eg.appendChild(svg("line", {
+      class: "edge",
+      "marker-end": isSel ? "url(#arrow-selected)" : "url(#arrow)",
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+    }));
+    edgesLayer.appendChild(eg);
   }
 
   for (const n of diagram.nodes) {
@@ -154,7 +165,7 @@ function render() {
     if (input) { input.focus(); input.select(); }
   }
 
-  deleteBtn.disabled = selectedId === null;
+  deleteBtn.disabled = selectedId === null && selectedEdgeId === null;
   connectBtn.classList.toggle("active", connecting);
   canvas.classList.toggle("connecting", connecting);
 }
@@ -192,16 +203,26 @@ connectBtn.addEventListener("click", () => {
   render();
 });
 
-deleteBtn.addEventListener("click", () => {
-  if (!selectedId) return;
-  diagram.nodes = diagram.nodes.filter((n) => n.id !== selectedId);
-  diagram.edges = diagram.edges.filter(
-    (e) => e.source !== selectedId && e.target !== selectedId
-  );
-  selectedId = null;
-  save();
-  render();
-});
+deleteBtn.addEventListener("click", deleteSelected);
+
+function deleteSelected() {
+  if (selectedEdgeId) {
+    diagram.edges = diagram.edges.filter((e) => e.id !== selectedEdgeId);
+    selectedEdgeId = null;
+    save();
+    render();
+    return;
+  }
+  if (selectedId) {
+    diagram.nodes = diagram.nodes.filter((n) => n.id !== selectedId);
+    diagram.edges = diagram.edges.filter(
+      (e) => e.source !== selectedId && e.target !== selectedId
+    );
+    selectedId = null;
+    save();
+    render();
+  }
+}
 
 function startEdit(id) {
   editing = id;
@@ -237,8 +258,18 @@ canvas.addEventListener("mousedown", (evt) => {
   // While editing, let the input handle its own clicks; ignore on canvas.
   if (evt.target.tagName === "INPUT") return;
   const nodeEl = evt.target.closest(".node");
+  const edgeEl = evt.target.closest(".edge-group");
 
-  if (!nodeEl) {
+  if (!nodeEl && !edgeEl) {
+    selectedId = null;
+    selectedEdgeId = null;
+    connectSource = null;
+    render();
+    return;
+  }
+
+  if (edgeEl && !nodeEl) {
+    selectedEdgeId = edgeEl.dataset.id;
     selectedId = null;
     connectSource = null;
     render();
@@ -246,6 +277,7 @@ canvas.addEventListener("mousedown", (evt) => {
   }
 
   const id = nodeEl.dataset.id;
+  selectedEdgeId = null;
 
   if (connecting) {
     if (!connectSource) {
