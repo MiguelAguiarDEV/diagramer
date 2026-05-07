@@ -99,6 +99,7 @@ function render() {
     const pb = sideAnchor(b, center(a));
     const line = svg("line", {
       class: "edge",
+      "marker-end": "url(#arrow)",
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
     });
     edgesLayer.appendChild(line);
