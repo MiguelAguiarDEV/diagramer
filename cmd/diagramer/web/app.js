@@ -321,6 +321,34 @@ window.addEventListener("mouseup", () => {
   dragging = null;
 });
 
+window.addEventListener("keydown", (evt) => {
+  const tag = evt.target && evt.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+  if (evt.key === "Delete" || evt.key === "Backspace") {
+    if (selectedId || selectedEdgeId) {
+      evt.preventDefault();
+      deleteSelected();
+    }
+    return;
+  }
+
+  if (evt.key === "Escape") {
+    if (editing) { cancelEdit(); return; }
+    if (connecting || connectSource) {
+      connecting = false;
+      connectSource = null;
+      render();
+      return;
+    }
+    if (selectedId || selectedEdgeId) {
+      selectedId = null;
+      selectedEdgeId = null;
+      render();
+    }
+  }
+});
+
 init().catch((e) => {
   console.error(e);
   setStatus("failed to load");
