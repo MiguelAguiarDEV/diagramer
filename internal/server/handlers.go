@@ -10,6 +10,11 @@ import (
 	"github.com/MiguelAguiarDEV/diagramer/internal/storage"
 )
 
+// maxBodyBytes caps request body size to protect the server from accidental
+// or malicious oversized payloads. 1 MiB comfortably fits diagrams up to the
+// service-level node/edge caps.
+const maxBodyBytes = 1 << 20
+
 func registerAPIRoutes(mux *http.ServeMux, svc diagrams.Service, logger *slog.Logger) {
 	h := &apiHandlers{svc: svc, logger: logger}
 	mux.HandleFunc("GET /api/health", h.health)
@@ -43,6 +48,7 @@ func (h *apiHandlers) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiHandlers) create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -80,6 +86,7 @@ type updateRequest struct {
 
 func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var req updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -102,6 +109,7 @@ func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 func (h *apiHandlers) rename(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -132,8 +140,13 @@ func (h *apiHandlers) writeError(w http.ResponseWriter, err error) {
 		http.Error(w, "not found", http.StatusNotFound)
 	case errors.Is(err, storage.ErrInvalidID):
 		http.Error(w, "invalid id", http.StatusBadRequest)
-	case errors.Is(err, diagrams.ErrInvalidName):
-		http.Error(w, "invalid name", http.StatusBadRequest)
+	case errors.Is(err, diagrams.ErrInvalidName),
+		errors.Is(err, diagrams.ErrNameTooLong),
+		errors.Is(err, diagrams.ErrTooManyNodes),
+		errors.Is(err, diagrams.ErrTooManyEdges),
+		errors.Is(err, diagrams.ErrLabelTooLong),
+		errors.Is(err, diagrams.ErrEdgeRef):
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	default:
 		h.logger.Error("internal error", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

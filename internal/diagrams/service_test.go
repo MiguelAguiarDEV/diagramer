@@ -143,6 +143,44 @@ func TestRenameRejectsEmpty(t *testing.T) {
 	}
 }
 
+func TestUpdateRejectsBadEdgeRef(t *testing.T) {
+	s := NewService(newMemRepo())
+	ctx := context.Background()
+	d, _ := s.Create(ctx, "x")
+	d.Nodes = []Node{{ID: "n1"}}
+	d.Edges = []Edge{{ID: "e1", Source: "n1", Target: "ghost"}}
+	if _, err := s.Update(ctx, d); !errors.Is(err, ErrEdgeRef) {
+		t.Errorf("expected ErrEdgeRef, got %v", err)
+	}
+}
+
+func TestUpdateRejectsLongLabel(t *testing.T) {
+	s := NewService(newMemRepo())
+	ctx := context.Background()
+	d, _ := s.Create(ctx, "x")
+	long := make([]byte, MaxLabelLen+1)
+	for i := range long {
+		long[i] = 'a'
+	}
+	d.Nodes = []Node{{ID: "n1", Data: NodeData{Label: string(long)}}}
+	if _, err := s.Update(ctx, d); !errors.Is(err, ErrLabelTooLong) {
+		t.Errorf("expected ErrLabelTooLong, got %v", err)
+	}
+}
+
+func TestUpdateRejectsTooManyNodes(t *testing.T) {
+	s := NewService(newMemRepo())
+	ctx := context.Background()
+	d, _ := s.Create(ctx, "x")
+	d.Nodes = make([]Node, MaxNodes+1)
+	for i := range d.Nodes {
+		d.Nodes[i] = Node{ID: "n"}
+	}
+	if _, err := s.Update(ctx, d); !errors.Is(err, ErrTooManyNodes) {
+		t.Errorf("expected ErrTooManyNodes, got %v", err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
