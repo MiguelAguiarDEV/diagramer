@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>diagramer</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <span class="title">diagramer</span>
+    <button id="add-box">+ Box</button>
+    <button id="connect-mode">Connect</button>
+    <button id="delete" disabled>Delete</button>
+    <span id="status" class="status"></span>
+  </header>
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <g id="edges"></g>
+    <g id="nodes"></g>
+  </svg>
+  <script src="/app.js"></script>
+</body>
+</html>

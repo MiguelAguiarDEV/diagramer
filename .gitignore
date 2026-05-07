@@ -4,14 +4,6 @@
 *.test
 *.out
 
-# Node
-web/node_modules/
-web/dist/
-web/.vite/
-
-# Frontend build output staged for go:embed (regenerated each build)
-cmd/diagramer/web-dist/
-
 # Data
 data/
 

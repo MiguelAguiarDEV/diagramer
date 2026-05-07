@@ -1,10 +1,8 @@
 # diagramer
 
-Local-first diagram tool. React Flow canvas, Go single binary, JSON file persistence.
+Local-first diagram tool. Single Go binary, vanilla SVG/JS frontend, JSON file persistence. No npm, no bundler, no framework.
 
-> Status: **Phase 0 — bootstrapping**.
-
-## Build
+## Build & run
 
 ```sh
 make build
@@ -13,14 +11,19 @@ make build
 
 Open <http://127.0.0.1:7777>.
 
-## Develop
+Or without building:
 
 ```sh
-# Terminal 1 — backend
-make go-dev
-
-# Terminal 2 — frontend (Vite, hot reload, proxies /api to :7777)
-make web-dev
+make run
 ```
+
+## MVP controls
+
+- **+ Box** — adds a box at the canvas center; prompts for text.
+- **Connect** — toggles connect mode; click a source box, then a target box.
+- **Delete** — deletes the selected box (and its edges).
+- Click a box to select it. Drag to move. Click empty canvas to deselect.
+
+Diagrams are persisted as JSON under `./data` (configurable via `-data`).
 
 See [docs/PRD.md](docs/PRD.md), [docs/architecture.md](docs/architecture.md), [docs/tasks.md](docs/tasks.md).
