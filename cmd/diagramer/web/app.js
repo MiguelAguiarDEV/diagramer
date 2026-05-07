@@ -1,5 +1,17 @@
-const NODE_W = 140;
 const NODE_H = 44;
+const NODE_PAD_X = 16;
+const NODE_MIN_W = 80;
+const NODE_MAX_W = 320;
+const NODE_FONT = "13px system-ui, sans-serif";
+
+const _measureCtx = document.createElement("canvas").getContext("2d");
+_measureCtx.font = NODE_FONT;
+
+function nodeWidth(node) {
+  const label = node.data.label || "";
+  const w = _measureCtx.measureText(label).width + NODE_PAD_X * 2;
+  return Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, Math.ceil(w)));
+}
 
 const canvas = document.getElementById("canvas");
 const edgesLayer = document.getElementById("edges");
@@ -67,19 +79,20 @@ function save() {
 }
 
 function center(node) {
-  return { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 };
+  return { x: node.position.x + nodeWidth(node) / 2, y: node.position.y + NODE_H / 2 };
 }
 
 // Returns the midpoint of the node's side that faces `target` (a {x,y} point).
 // Picking sides (top/right/bottom/left) by comparing dx/w vs dy/h projects
 // each box onto its diagonal so connections always meet a side cleanly.
 function sideAnchor(node, target) {
-  const c = center(node);
+  const w = nodeWidth(node);
+  const c = { x: node.position.x + w / 2, y: node.position.y + NODE_H / 2 };
   const dx = target.x - c.x;
   const dy = target.y - c.y;
-  if (Math.abs(dx) * NODE_H >= Math.abs(dy) * NODE_W) {
+  if (Math.abs(dx) * NODE_H >= Math.abs(dy) * w) {
     return dx >= 0
-      ? { x: node.position.x + NODE_W, y: c.y }
+      ? { x: node.position.x + w, y: c.y }
       : { x: node.position.x, y: c.y };
   }
   return dy >= 0
@@ -113,8 +126,9 @@ function render() {
       "data-id": n.id,
       transform: `translate(${n.position.x},${n.position.y})`,
     });
-    g.appendChild(svg("rect", { width: NODE_W, height: NODE_H }));
-    const t = svg("text", { x: NODE_W / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
+    const w = nodeWidth(n);
+    g.appendChild(svg("rect", { width: w, height: NODE_H }));
+    const t = svg("text", { x: w / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
     t.textContent = n.data.label || "";
     g.appendChild(t);
     nodesLayer.appendChild(g);
@@ -140,7 +154,7 @@ addBtn.addEventListener("click", () => {
   const label = prompt("Box text:");
   if (label === null) return;
   const rect = canvas.getBoundingClientRect();
-  const x = rect.width / 2 - NODE_W / 2 + (Math.random() - 0.5) * 80;
+  const x = rect.width / 2 - NODE_MIN_W / 2 + (Math.random() - 0.5) * 80;
   const y = rect.height / 2 - NODE_H / 2 + (Math.random() - 0.5) * 80;
   diagram.nodes.push({
     id: uid(),
