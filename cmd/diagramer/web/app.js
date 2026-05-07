@@ -70,6 +70,23 @@ function center(node) {
   return { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 };
 }
 
+// Returns the midpoint of the node's side that faces `target` (a {x,y} point).
+// Picking sides (top/right/bottom/left) by comparing dx/w vs dy/h projects
+// each box onto its diagonal so connections always meet a side cleanly.
+function sideAnchor(node, target) {
+  const c = center(node);
+  const dx = target.x - c.x;
+  const dy = target.y - c.y;
+  if (Math.abs(dx) * NODE_H >= Math.abs(dy) * NODE_W) {
+    return dx >= 0
+      ? { x: node.position.x + NODE_W, y: c.y }
+      : { x: node.position.x, y: c.y };
+  }
+  return dy >= 0
+    ? { x: c.x, y: node.position.y + NODE_H }
+    : { x: c.x, y: node.position.y };
+}
+
 function render() {
   edgesLayer.innerHTML = "";
   nodesLayer.innerHTML = "";
@@ -78,11 +95,11 @@ function render() {
     const a = diagram.nodes.find((n) => n.id === e.source);
     const b = diagram.nodes.find((n) => n.id === e.target);
     if (!a || !b) continue;
-    const ca = center(a);
-    const cb = center(b);
+    const pa = sideAnchor(a, center(b));
+    const pb = sideAnchor(b, center(a));
     const line = svg("line", {
       class: "edge",
-      x1: ca.x, y1: ca.y, x2: cb.x, y2: cb.y,
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
     });
     edgesLayer.appendChild(line);
   }
