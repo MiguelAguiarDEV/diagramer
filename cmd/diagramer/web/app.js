@@ -27,6 +27,7 @@ const addBtn = document.getElementById("add-box");
 const connectBtn = document.getElementById("connect-mode");
 const deleteBtn = document.getElementById("delete");
 const statusEl = document.getElementById("status");
+const editorEl = document.getElementById("node-editor");
 
 let diagram = null;
 let selectedId = null;
@@ -171,39 +172,13 @@ function render() {
     handle.appendChild(ht);
     g.appendChild(handle);
 
-    if (n.id === editing) {
-      const fo = svg("foreignObject", { x: 0, y: 0, width: w, height: NODE_H });
-      // HTML elements inside <foreignObject> must live in the XHTML namespace
-      // for some browsers (notably Safari) to render them at all.
-      const input = document.createElementNS(
-        "http://www.w3.org/1999/xhtml",
-        "input"
-      );
-      input.setAttribute("class", "node-input");
-      input.setAttribute("type", "text");
-      input.value = n.data.label || "";
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") { ev.preventDefault(); commitEdit(input.value); }
-        else if (ev.key === "Escape") { ev.preventDefault(); cancelEdit(); }
-      });
-      input.addEventListener("blur", () => commitEdit(input.value));
-      fo.appendChild(input);
-      g.appendChild(fo);
-    } else {
-      const t = svg("text", { x: w / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
-      t.textContent = n.data.label || "";
-      g.appendChild(t);
-    }
+    const t = svg("text", { x: w / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
+    t.textContent = n.data.label || "";
+    g.appendChild(t);
     nodesLayer.appendChild(g);
   }
 
-  if (editing) {
-    const input = nodesLayer.querySelector(".node-input");
-    if (input) {
-      // Defer one frame so the foreignObject is laid out before focusing.
-      requestAnimationFrame(() => { input.focus(); input.select(); });
-    }
-  }
+  if (editing) positionEditor();
 
   deleteBtn.disabled = selectedId === null && selectedEdgeId === null;
   connectBtn.classList.toggle("active", connecting);
@@ -235,6 +210,7 @@ function syncPendingEdge() {
 function applyViewport() {
   const { x, y, zoom } = diagram.viewport;
   viewportLayer.setAttribute("transform", `translate(${x},${y}) scale(${zoom})`);
+  if (editing) positionEditor();
 }
 
 function svg(tag, attrs) {
@@ -298,10 +274,32 @@ function deleteSelected() {
   }
 }
 
+function positionEditor() {
+  const node = diagram.nodes.find((n) => n.id === editing);
+  if (!node) return;
+  const w = nodeWidth(node);
+  const { x: vx, y: vy, zoom } = diagram.viewport;
+  const canvasRect = canvas.getBoundingClientRect();
+  const sx = canvasRect.left + node.position.x * zoom + vx;
+  const sy = canvasRect.top + node.position.y * zoom + vy;
+  editorEl.style.left = sx + "px";
+  editorEl.style.top = sy + "px";
+  editorEl.style.width = (w * zoom) + "px";
+  editorEl.style.height = (NODE_H * zoom) + "px";
+  editorEl.style.fontSize = (13 * zoom) + "px";
+}
+
 function startEdit(id) {
+  const node = diagram.nodes.find((n) => n.id === id);
+  if (!node) return;
   editing = id;
   selectedId = id;
   dragging = null;
+  editorEl.value = node.data.label || "";
+  editorEl.hidden = false;
+  positionEditor();
+  // Defer focus one frame so layout settles before selecting the text.
+  requestAnimationFrame(() => { editorEl.focus(); editorEl.select(); });
   render();
 }
 
@@ -313,14 +311,24 @@ function commitEdit(value) {
     if (v) node.data.label = v;
   }
   editing = null;
+  editorEl.hidden = true;
   save();
   render();
 }
 
 function cancelEdit() {
   editing = null;
+  editorEl.hidden = true;
   render();
 }
+
+editorEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") { ev.preventDefault(); commitEdit(editorEl.value); }
+  else if (ev.key === "Escape") { ev.preventDefault(); cancelEdit(); }
+});
+editorEl.addEventListener("blur", () => {
+  if (editing) commitEdit(editorEl.value);
+});
 
 canvas.addEventListener("dblclick", (evt) => {
   const nodeEl = evt.target.closest(".node");

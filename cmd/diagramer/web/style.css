@@ -63,19 +63,20 @@ body {
 .node.selected rect { stroke: #2563eb; stroke-width: 2; }
 .node.connect-source rect { stroke: #f59e0b; stroke-width: 2; }
 
-.node-input {
-  width: 100%;
-  height: 100%;
+#node-editor {
+  position: absolute;
   border: 2px solid #2563eb;
   border-radius: 6px;
   outline: none;
   background: #1f2937;
   color: #e5e7eb;
-  font: 13px system-ui, sans-serif;
+  font-family: system-ui, sans-serif;
   text-align: center;
   padding: 0 8px;
   box-sizing: border-box;
+  z-index: 10;
 }
+#node-editor[hidden] { display: none; }
 
 .edge {
   stroke: #6b7280;
