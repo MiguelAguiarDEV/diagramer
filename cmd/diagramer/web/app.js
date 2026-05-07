@@ -26,6 +26,7 @@ let selectedId = null;
 let connecting = false;
 let connectSource = null;
 let dragging = null;
+let editing = null;
 let saveTimer = null;
 
 function setStatus(msg) {
@@ -128,10 +129,29 @@ function render() {
     });
     const w = nodeWidth(n);
     g.appendChild(svg("rect", { width: w, height: NODE_H }));
-    const t = svg("text", { x: w / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
-    t.textContent = n.data.label || "";
-    g.appendChild(t);
+    if (n.id === editing) {
+      const fo = svg("foreignObject", { x: 0, y: 0, width: w, height: NODE_H });
+      const input = document.createElement("input");
+      input.className = "node-input";
+      input.value = n.data.label || "";
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); commitEdit(input.value); }
+        else if (ev.key === "Escape") { ev.preventDefault(); cancelEdit(); }
+      });
+      input.addEventListener("blur", () => commitEdit(input.value));
+      fo.appendChild(input);
+      g.appendChild(fo);
+    } else {
+      const t = svg("text", { x: w / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
+      t.textContent = n.data.label || "";
+      g.appendChild(t);
+    }
     nodesLayer.appendChild(g);
+  }
+
+  if (editing) {
+    const input = nodesLayer.querySelector(".node-input");
+    if (input) { input.focus(); input.select(); }
   }
 
   deleteBtn.disabled = selectedId === null;
@@ -183,7 +203,39 @@ deleteBtn.addEventListener("click", () => {
   render();
 });
 
+function startEdit(id) {
+  editing = id;
+  selectedId = id;
+  dragging = null;
+  render();
+}
+
+function commitEdit(value) {
+  if (!editing) return;
+  const node = diagram.nodes.find((n) => n.id === editing);
+  if (node) {
+    const v = (value || "").trim();
+    if (v) node.data.label = v;
+  }
+  editing = null;
+  save();
+  render();
+}
+
+function cancelEdit() {
+  editing = null;
+  render();
+}
+
+canvas.addEventListener("dblclick", (evt) => {
+  const nodeEl = evt.target.closest(".node");
+  if (!nodeEl) return;
+  startEdit(nodeEl.dataset.id);
+});
+
 canvas.addEventListener("mousedown", (evt) => {
+  // While editing, let the input handle its own clicks; ignore on canvas.
+  if (evt.target.tagName === "INPUT") return;
   const nodeEl = evt.target.closest(".node");
 
   if (!nodeEl) {
