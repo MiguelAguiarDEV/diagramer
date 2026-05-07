@@ -13,6 +13,22 @@ import (
 // ErrInvalidName is returned when a diagram name is empty or whitespace-only.
 var ErrInvalidName = errors.New("invalid diagram name")
 
+// Validation limits.
+const (
+	MaxNameLen  = 200
+	MaxLabelLen = 500
+	MaxNodes    = 5000
+	MaxEdges    = 10000
+)
+
+var (
+	ErrNameTooLong  = errors.New("diagram name too long")
+	ErrTooManyNodes = errors.New("too many nodes")
+	ErrTooManyEdges = errors.New("too many edges")
+	ErrLabelTooLong = errors.New("node label too long")
+	ErrEdgeRef      = errors.New("edge references unknown node")
+)
+
 // Repository is the storage abstraction the Service depends on.
 // Defined here (consumer side) per Go convention so storage stays decoupled.
 type Repository interface {
@@ -54,6 +70,9 @@ func (s *service) Create(ctx context.Context, name string) (*Diagram, error) {
 	if name == "" {
 		return nil, ErrInvalidName
 	}
+	if len(name) > MaxNameLen {
+		return nil, ErrNameTooLong
+	}
 	now := s.now()
 	d := &Diagram{
 		ID:        uuid.NewString(),
@@ -89,6 +108,9 @@ func (s *service) Update(ctx context.Context, d *Diagram) (*Diagram, error) {
 	if d.Edges == nil {
 		d.Edges = []Edge{}
 	}
+	if err := validate(d); err != nil {
+		return nil, err
+	}
 	d.UpdatedAt = s.now()
 	if err := s.repo.Save(ctx, d); err != nil {
 		return nil, fmt.Errorf("save: %w", err)
@@ -100,6 +122,9 @@ func (s *service) Rename(ctx context.Context, id, newName string) (*DiagramMeta,
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil, ErrInvalidName
+	}
+	if len(newName) > MaxNameLen {
+		return nil, ErrNameTooLong
 	}
 	d, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -116,4 +141,32 @@ func (s *service) Rename(ctx context.Context, id, newName string) (*DiagramMeta,
 
 func (s *service) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
+}
+
+func validate(d *Diagram) error {
+	if len(d.Name) > MaxNameLen {
+		return ErrNameTooLong
+	}
+	if len(d.Nodes) > MaxNodes {
+		return ErrTooManyNodes
+	}
+	if len(d.Edges) > MaxEdges {
+		return ErrTooManyEdges
+	}
+	ids := make(map[string]struct{}, len(d.Nodes))
+	for i := range d.Nodes {
+		if len(d.Nodes[i].Data.Label) > MaxLabelLen {
+			return ErrLabelTooLong
+		}
+		ids[d.Nodes[i].ID] = struct{}{}
+	}
+	for i := range d.Edges {
+		if _, ok := ids[d.Edges[i].Source]; !ok {
+			return ErrEdgeRef
+		}
+		if _, ok := ids[d.Edges[i].Target]; !ok {
+			return ErrEdgeRef
+		}
+	}
+	return nil
 }
