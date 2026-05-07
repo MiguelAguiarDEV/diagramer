@@ -28,6 +28,7 @@ const connectBtn = document.getElementById("connect-mode");
 const deleteBtn = document.getElementById("delete");
 const statusEl = document.getElementById("status");
 const editorEl = document.getElementById("node-editor");
+console.log("[editor] element lookup:", editorEl);
 
 let diagram = null;
 let selectedId = null;
@@ -276,7 +277,7 @@ function deleteSelected() {
 
 function positionEditor() {
   const node = diagram.nodes.find((n) => n.id === editing);
-  if (!node) return;
+  if (!node) { console.warn("[positionEditor] node not found for editing id:", editing); return; }
   const w = nodeWidth(node);
   const { x: vx, y: vy, zoom } = diagram.viewport;
   const canvasRect = canvas.getBoundingClientRect();
@@ -287,19 +288,26 @@ function positionEditor() {
   editorEl.style.width = (w * zoom) + "px";
   editorEl.style.height = (NODE_H * zoom) + "px";
   editorEl.style.fontSize = (13 * zoom) + "px";
+  console.log("[positionEditor]", { sx, sy, w: w*zoom, h: NODE_H*zoom, hidden: editorEl.hidden });
 }
 
 function startEdit(id) {
+  console.log("[startEdit] id:", id);
   const node = diagram.nodes.find((n) => n.id === id);
-  if (!node) return;
+  if (!node) { console.warn("[startEdit] node not found"); return; }
   editing = id;
   selectedId = id;
   dragging = null;
   editorEl.value = node.data.label || "";
   editorEl.hidden = false;
+  console.log("[startEdit] hidden after set:", editorEl.hidden, "value:", editorEl.value);
   positionEditor();
   // Defer focus one frame so layout settles before selecting the text.
-  requestAnimationFrame(() => { editorEl.focus(); editorEl.select(); });
+  requestAnimationFrame(() => {
+    editorEl.focus();
+    editorEl.select();
+    console.log("[startEdit rAF] focused, activeElement:", document.activeElement === editorEl);
+  });
   render();
 }
 
@@ -323,15 +331,19 @@ function cancelEdit() {
 }
 
 editorEl.addEventListener("keydown", (ev) => {
+  console.log("[editor keydown]", ev.key);
   if (ev.key === "Enter") { ev.preventDefault(); commitEdit(editorEl.value); }
   else if (ev.key === "Escape") { ev.preventDefault(); cancelEdit(); }
 });
 editorEl.addEventListener("blur", () => {
+  console.log("[editor blur] editing:", editing);
   if (editing) commitEdit(editorEl.value);
 });
 
 canvas.addEventListener("dblclick", (evt) => {
+  console.log("[dblclick] target:", evt.target, "tagName:", evt.target.tagName);
   const nodeEl = evt.target.closest(".node");
+  console.log("[dblclick] nodeEl:", nodeEl, "dataset.id:", nodeEl && nodeEl.dataset.id);
   if (!nodeEl) return;
   startEdit(nodeEl.dataset.id);
 });
