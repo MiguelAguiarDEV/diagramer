@@ -1,5 +1,5 @@
 const NODE_H = 44;
-const NODE_PAD_X = 16;
+const NODE_PAD_X = 20;
 const NODE_MIN_W = 80;
 const NODE_MAX_W = 320;
 const NODE_FONT = "13px system-ui, sans-serif";
@@ -9,7 +9,9 @@ _measureCtx.font = NODE_FONT;
 
 function nodeWidth(node) {
   const label = node.data.label || "";
-  const w = _measureCtx.measureText(label).width + NODE_PAD_X * 2;
+  // Canvas measureText doesn't exactly match the SVG text render so we add a
+  // small safety buffer (8 px) on top of the symmetric horizontal padding.
+  const w = _measureCtx.measureText(label).width + NODE_PAD_X * 2 + 8;
   return Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, Math.ceil(w)));
 }
 
@@ -171,8 +173,14 @@ function render() {
 
     if (n.id === editing) {
       const fo = svg("foreignObject", { x: 0, y: 0, width: w, height: NODE_H });
-      const input = document.createElement("input");
-      input.className = "node-input";
+      // HTML elements inside <foreignObject> must live in the XHTML namespace
+      // for some browsers (notably Safari) to render them at all.
+      const input = document.createElementNS(
+        "http://www.w3.org/1999/xhtml",
+        "input"
+      );
+      input.setAttribute("class", "node-input");
+      input.setAttribute("type", "text");
       input.value = n.data.label || "";
       input.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") { ev.preventDefault(); commitEdit(input.value); }
@@ -191,7 +199,10 @@ function render() {
 
   if (editing) {
     const input = nodesLayer.querySelector(".node-input");
-    if (input) { input.focus(); input.select(); }
+    if (input) {
+      // Defer one frame so the foreignObject is laid out before focusing.
+      requestAnimationFrame(() => { input.focus(); input.select(); });
+    }
   }
 
   deleteBtn.disabled = selectedId === null && selectedEdgeId === null;
