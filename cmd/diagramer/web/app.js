@@ -33,6 +33,7 @@ let connecting = false;
 let connectSource = null;
 let dragging = null;
 let panning = null;
+let pendingEdge = null;
 let editing = null;
 let saveTimer = null;
 
@@ -146,6 +147,18 @@ function render() {
     });
     const w = nodeWidth(n);
     g.appendChild(svg("rect", { width: w, height: NODE_H }));
+    // n8n-style "+" handle on the right side; visible on hover/select via CSS.
+    const handle = svg("g", { class: "conn-handle", "data-id": n.id });
+    handle.appendChild(svg("rect", {
+      x: w + 6, y: NODE_H / 2 - 8, width: 16, height: 16, rx: 3,
+    }));
+    const ht = svg("text", {
+      x: w + 14, y: NODE_H / 2 + 4, "text-anchor": "middle",
+    });
+    ht.textContent = "+";
+    handle.appendChild(ht);
+    g.appendChild(handle);
+
     if (n.id === editing) {
       const fo = svg("foreignObject", { x: 0, y: 0, width: w, height: NODE_H });
       const input = document.createElement("input");
@@ -175,6 +188,27 @@ function render() {
   connectBtn.classList.toggle("active", connecting);
   canvas.classList.toggle("connecting", connecting);
   applyViewport();
+  syncPendingEdge();
+}
+
+// Draws (or removes) the ghost line shown while dragging from a "+" handle.
+function syncPendingEdge() {
+  let line = edgesLayer.querySelector(".pending-edge");
+  if (!pendingEdge) {
+    if (line) line.remove();
+    return;
+  }
+  const src = diagram.nodes.find((n) => n.id === pendingEdge.sourceId);
+  if (!src) return;
+  const a = sideAnchor(src, pendingEdge.cursor);
+  if (!line) {
+    line = svg("line", { class: "pending-edge", "marker-end": "url(#arrow)" });
+    edgesLayer.appendChild(line);
+  }
+  line.setAttribute("x1", a.x);
+  line.setAttribute("y1", a.y);
+  line.setAttribute("x2", pendingEdge.cursor.x);
+  line.setAttribute("y2", pendingEdge.cursor.y);
 }
 
 function applyViewport() {
@@ -288,6 +322,16 @@ canvas.addEventListener("mousedown", (evt) => {
   }
   // While editing, let the input handle its own clicks; ignore on canvas.
   if (evt.target.tagName === "INPUT") return;
+
+  // n8n-style: clicking the "+" handle starts a pending edge from that node.
+  const handleEl = evt.target.closest(".conn-handle");
+  if (handleEl) {
+    evt.stopPropagation();
+    pendingEdge = { sourceId: handleEl.dataset.id, cursor: clientToModel(evt) };
+    syncPendingEdge();
+    return;
+  }
+
   const nodeEl = evt.target.closest(".node");
   const edgeEl = evt.target.closest(".edge-group");
 
@@ -342,6 +386,11 @@ window.addEventListener("mousemove", (evt) => {
     applyViewport();
     return;
   }
+  if (pendingEdge) {
+    pendingEdge.cursor = clientToModel(evt);
+    syncPendingEdge();
+    return;
+  }
   if (!dragging) return;
   const node = diagram.nodes.find((n) => n.id === dragging.id);
   if (!node) return;
@@ -352,11 +401,28 @@ window.addEventListener("mousemove", (evt) => {
   render();
 });
 
-window.addEventListener("mouseup", () => {
+window.addEventListener("mouseup", (evt) => {
   if (panning) {
     panning = null;
     canvas.classList.remove("panning");
     save();
+    return;
+  }
+  if (pendingEdge) {
+    const targetNode = evt.target.closest && evt.target.closest(".node");
+    if (targetNode) {
+      const targetId = targetNode.dataset.id;
+      if (targetId !== pendingEdge.sourceId) {
+        diagram.edges.push({
+          id: uid(),
+          source: pendingEdge.sourceId,
+          target: targetId,
+        });
+        save();
+      }
+    }
+    pendingEdge = null;
+    render();
     return;
   }
   if (!dragging) return;
@@ -397,6 +463,7 @@ window.addEventListener("keydown", (evt) => {
 
   if (evt.key === "Escape") {
     if (editing) { cancelEdit(); return; }
+    if (pendingEdge) { pendingEdge = null; syncPendingEdge(); return; }
     if (connecting || connectSource) {
       connecting = false;
       connectSource = null;

@@ -91,3 +91,29 @@ body {
 }
 .edge-group:hover .edge { stroke: #93c5fd; }
 .edge-group.selected .edge { stroke: #2563eb; stroke-width: 2.5; }
+
+.pending-edge {
+  stroke: #93c5fd;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  fill: none;
+  pointer-events: none;
+}
+
+.conn-handle {
+  opacity: 0;
+  cursor: crosshair;
+  transition: opacity 0.1s;
+}
+.conn-handle rect {
+  fill: #2563eb;
+  stroke: #2563eb;
+}
+.conn-handle text {
+  fill: white;
+  font: bold 14px system-ui, sans-serif;
+  user-select: none;
+  pointer-events: none;
+}
+.node:hover .conn-handle,
+.node.selected .conn-handle { opacity: 1; }
