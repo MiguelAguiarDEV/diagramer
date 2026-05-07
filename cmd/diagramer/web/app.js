@@ -13,7 +13,12 @@ function nodeWidth(node) {
   return Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, Math.ceil(w)));
 }
 
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 1.1;
+
 const canvas = document.getElementById("canvas");
+const viewportLayer = document.getElementById("viewport");
 const edgesLayer = document.getElementById("edges");
 const nodesLayer = document.getElementById("nodes");
 const addBtn = document.getElementById("add-box");
@@ -27,6 +32,7 @@ let selectedEdgeId = null;
 let connecting = false;
 let connectSource = null;
 let dragging = null;
+let panning = null;
 let editing = null;
 let saveTimer = null;
 
@@ -168,6 +174,12 @@ function render() {
   deleteBtn.disabled = selectedId === null && selectedEdgeId === null;
   connectBtn.classList.toggle("active", connecting);
   canvas.classList.toggle("connecting", connecting);
+  applyViewport();
+}
+
+function applyViewport() {
+  const { x, y, zoom } = diagram.viewport;
+  viewportLayer.setAttribute("transform", `translate(${x},${y}) scale(${zoom})`);
 }
 
 function svg(tag, attrs) {
@@ -176,17 +188,24 @@ function svg(tag, attrs) {
   return el;
 }
 
-function clientToCanvas(evt) {
+function clientToModel(evt) {
   const rect = canvas.getBoundingClientRect();
-  return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+  const sx = evt.clientX - rect.left;
+  const sy = evt.clientY - rect.top;
+  const { x, y, zoom } = diagram.viewport;
+  return { x: (sx - x) / zoom, y: (sy - y) / zoom };
 }
 
 addBtn.addEventListener("click", () => {
   const label = prompt("Box text:");
   if (label === null) return;
+  // Drop the new box near the centre of the visible viewport, in model coords.
   const rect = canvas.getBoundingClientRect();
-  const x = rect.width / 2 - NODE_MIN_W / 2 + (Math.random() - 0.5) * 80;
-  const y = rect.height / 2 - NODE_H / 2 + (Math.random() - 0.5) * 80;
+  const { x: vx, y: vy, zoom } = diagram.viewport;
+  const mx = (rect.width / 2 - vx) / zoom;
+  const my = (rect.height / 2 - vy) / zoom;
+  const x = mx - NODE_MIN_W / 2 + (Math.random() - 0.5) * 80;
+  const y = my - NODE_H / 2 + (Math.random() - 0.5) * 80;
   diagram.nodes.push({
     id: uid(),
     position: { x, y },
@@ -255,6 +274,18 @@ canvas.addEventListener("dblclick", (evt) => {
 });
 
 canvas.addEventListener("mousedown", (evt) => {
+  // Middle button starts a pan, regardless of what's under the cursor.
+  if (evt.button === 1) {
+    evt.preventDefault();
+    panning = {
+      sx: evt.clientX,
+      sy: evt.clientY,
+      vx: diagram.viewport.x,
+      vy: diagram.viewport.y,
+    };
+    canvas.classList.add("panning");
+    return;
+  }
   // While editing, let the input handle its own clicks; ignore on canvas.
   if (evt.target.tagName === "INPUT") return;
   const nodeEl = evt.target.closest(".node");
@@ -294,7 +325,7 @@ canvas.addEventListener("mousedown", (evt) => {
 
   selectedId = id;
   const node = diagram.nodes.find((n) => n.id === id);
-  const p = clientToCanvas(evt);
+  const p = clientToModel(evt);
   dragging = {
     id,
     offsetX: p.x - node.position.x,
@@ -305,10 +336,16 @@ canvas.addEventListener("mousedown", (evt) => {
 });
 
 window.addEventListener("mousemove", (evt) => {
+  if (panning) {
+    diagram.viewport.x = panning.vx + (evt.clientX - panning.sx);
+    diagram.viewport.y = panning.vy + (evt.clientY - panning.sy);
+    applyViewport();
+    return;
+  }
   if (!dragging) return;
   const node = diagram.nodes.find((n) => n.id === dragging.id);
   if (!node) return;
-  const p = clientToCanvas(evt);
+  const p = clientToModel(evt);
   node.position.x = p.x - dragging.offsetX;
   node.position.y = p.y - dragging.offsetY;
   dragging.moved = true;
@@ -316,10 +353,35 @@ window.addEventListener("mousemove", (evt) => {
 });
 
 window.addEventListener("mouseup", () => {
+  if (panning) {
+    panning = null;
+    canvas.classList.remove("panning");
+    save();
+    return;
+  }
   if (!dragging) return;
   if (dragging.moved) save();
   dragging = null;
 });
+
+canvas.addEventListener("wheel", (evt) => {
+  evt.preventDefault();
+  const oldZoom = diagram.viewport.zoom || 1;
+  const factor = evt.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, oldZoom * factor));
+  if (newZoom === oldZoom) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = evt.clientX - rect.left;
+  const cy = evt.clientY - rect.top;
+  // Keep the model point under the cursor stationary across zoom.
+  const mx = (cx - diagram.viewport.x) / oldZoom;
+  const my = (cy - diagram.viewport.y) / oldZoom;
+  diagram.viewport.x = cx - mx * newZoom;
+  diagram.viewport.y = cy - my * newZoom;
+  diagram.viewport.zoom = newZoom;
+  applyViewport();
+  save();
+}, { passive: false });
 
 window.addEventListener("keydown", (evt) => {
   const tag = evt.target && evt.target.tagName;

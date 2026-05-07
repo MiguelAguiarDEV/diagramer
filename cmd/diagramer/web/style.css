@@ -44,6 +44,7 @@ body {
   cursor: default;
 }
 #canvas.connecting { cursor: crosshair; }
+#canvas.panning { cursor: grabbing; }
 
 .node rect {
   fill: #1f2937;
