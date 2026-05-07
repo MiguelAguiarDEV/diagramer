@@ -47,6 +47,16 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// True if a connection already exists between the two nodes in either
+// direction. Bidirectional duplicates aren't supported yet.
+function edgeExists(srcId, tgtId) {
+  return diagram.edges.some(
+    (e) =>
+      (e.source === srcId && e.target === tgtId) ||
+      (e.source === tgtId && e.target === srcId)
+  );
+}
+
 async function api(method, path, body) {
   const res = await fetch(path, {
     method,
@@ -359,9 +369,13 @@ canvas.addEventListener("mousedown", (evt) => {
       connectSource = id;
       render();
     } else if (connectSource !== id) {
-      diagram.edges.push({ id: uid(), source: connectSource, target: id });
+      if (edgeExists(connectSource, id)) {
+        setStatus("already connected");
+      } else {
+        diagram.edges.push({ id: uid(), source: connectSource, target: id });
+        save();
+      }
       connectSource = null;
-      save();
       render();
     }
     return;
@@ -413,12 +427,16 @@ window.addEventListener("mouseup", (evt) => {
     if (targetNode) {
       const targetId = targetNode.dataset.id;
       if (targetId !== pendingEdge.sourceId) {
-        diagram.edges.push({
-          id: uid(),
-          source: pendingEdge.sourceId,
-          target: targetId,
-        });
-        save();
+        if (edgeExists(pendingEdge.sourceId, targetId)) {
+          setStatus("already connected");
+        } else {
+          diagram.edges.push({
+            id: uid(),
+            source: pendingEdge.sourceId,
+            target: targetId,
+          });
+          save();
+        }
       }
     }
     pendingEdge = null;
