@@ -340,14 +340,6 @@ editorEl.addEventListener("blur", () => {
   if (editing) commitEdit(editorEl.value);
 });
 
-canvas.addEventListener("dblclick", (evt) => {
-  console.log("[dblclick] target:", evt.target, "tagName:", evt.target.tagName);
-  const nodeEl = evt.target.closest(".node");
-  console.log("[dblclick] nodeEl:", nodeEl, "dataset.id:", nodeEl && nodeEl.dataset.id);
-  if (!nodeEl) return;
-  startEdit(nodeEl.dataset.id);
-});
-
 canvas.addEventListener("mousedown", (evt) => {
   // Middle button starts a pan, regardless of what's under the cursor.
   if (evt.button === 1) {
@@ -375,6 +367,15 @@ canvas.addEventListener("mousedown", (evt) => {
 
   const nodeEl = evt.target.closest(".node");
   const edgeEl = evt.target.closest(".edge-group");
+
+  // Double-click on a node enters in-place edit. Detected via evt.detail
+  // because we re-render on every click, which destroys the target the
+  // browser uses to correlate clicks for the native `dblclick` event.
+  if (nodeEl && evt.detail >= 2) {
+    console.log("[mousedown detail>=2 on node] starting edit", nodeEl.dataset.id);
+    startEdit(nodeEl.dataset.id);
+    return;
+  }
 
   if (!nodeEl && !edgeEl) {
     selectedId = null;
