@@ -181,6 +181,20 @@ main {
 .edge-group:hover .edge { stroke: #93c5fd; }
 .edge-group.selected .edge { stroke: #2563eb; stroke-width: 2.5; }
 
+.edge-label {
+  fill: #e5e7eb;
+  font: 12px system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+.edge-label-bg {
+  fill: #0b0b0d;
+  stroke: #2a2b32;
+  stroke-width: 1;
+  pointer-events: none;
+}
+.edge-group.selected .edge-label-bg { stroke: #2563eb; }
+
 .pending-edge {
   stroke: #93c5fd;
   stroke-width: 1.5;

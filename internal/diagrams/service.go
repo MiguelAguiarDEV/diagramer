@@ -167,6 +167,9 @@ func validate(d *Diagram) error {
 		if _, ok := ids[d.Edges[i].Target]; !ok {
 			return ErrEdgeRef
 		}
+		if len(d.Edges[i].Label) > MaxLabelLen {
+			return ErrLabelTooLong
+		}
 	}
 	return nil
 }

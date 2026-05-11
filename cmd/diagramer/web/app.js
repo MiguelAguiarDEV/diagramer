@@ -43,8 +43,11 @@ let spaceDown = false;
 let ctrlDown = false;
 let pendingEdge = null;
 let lasso = null;
-let editing = null;
+let editing = null; // { kind: "node" | "edge", id }
 let saveTimer = null;
+
+const EDGE_EDITOR_W = 140;
+const EDGE_EDITOR_H = 28;
 
 function setStatus(msg) {
   statusEl.textContent = msg;
@@ -238,6 +241,24 @@ function render() {
       "marker-end": isSel ? "url(#arrow-selected)" : "url(#arrow)",
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
     }));
+    // Edge label centred on the midpoint with a small background for legibility.
+    if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
+      const midX = (pa.x + pb.x) / 2;
+      const midY = (pa.y + pb.y) / 2;
+      const tw = _measureCtx.measureText(e.label).width + 10;
+      const th = 16;
+      eg.appendChild(svg("rect", {
+        class: "edge-label-bg",
+        x: midX - tw / 2, y: midY - th / 2,
+        width: tw, height: th, rx: 3,
+      }));
+      const lt = svg("text", {
+        class: "edge-label",
+        x: midX, y: midY + 4, "text-anchor": "middle",
+      });
+      lt.textContent = e.label;
+      eg.appendChild(lt);
+    }
     edgesLayer.appendChild(eg);
   }
 
@@ -400,28 +421,60 @@ function deleteSelected() {
 }
 
 function positionEditor() {
-  const node = diagram.nodes.find((n) => n.id === editing);
-  if (!node) return;
-  const w = nodeWidth(node);
+  if (!editing) return;
   const { x: vx, y: vy, zoom } = diagram.viewport;
   const canvasRect = canvas.getBoundingClientRect();
-  const sx = canvasRect.left + node.position.x * zoom + vx;
-  const sy = canvasRect.top + node.position.y * zoom + vy;
-  editorEl.style.left = sx + "px";
-  editorEl.style.top = sy + "px";
-  editorEl.style.width = (w * zoom) + "px";
-  editorEl.style.height = (NODE_H * zoom) + "px";
-  editorEl.style.fontSize = (13 * zoom) + "px";
+
+  if (editing.kind === "node") {
+    const node = diagram.nodes.find((n) => n.id === editing.id);
+    if (!node) return;
+    const w = nodeWidth(node);
+    editorEl.style.left = (canvasRect.left + node.position.x * zoom + vx) + "px";
+    editorEl.style.top = (canvasRect.top + node.position.y * zoom + vy) + "px";
+    editorEl.style.width = (w * zoom) + "px";
+    editorEl.style.height = (NODE_H * zoom) + "px";
+    editorEl.style.fontSize = (13 * zoom) + "px";
+    return;
+  }
+
+  // Edge: position over the midpoint of the segment in screen coords.
+  const edge = diagram.edges.find((e) => e.id === editing.id);
+  if (!edge) return;
+  const a = diagram.nodes.find((n) => n.id === edge.source);
+  const b = diagram.nodes.find((n) => n.id === edge.target);
+  if (!a || !b) return;
+  const pa = sideAnchor(a, center(b));
+  const pb = sideAnchor(b, center(a));
+  const midX = (pa.x + pb.x) / 2;
+  const midY = (pa.y + pb.y) / 2;
+  editorEl.style.left =
+    (canvasRect.left + (midX - EDGE_EDITOR_W / 2) * zoom + vx) + "px";
+  editorEl.style.top =
+    (canvasRect.top + (midY - EDGE_EDITOR_H / 2) * zoom + vy) + "px";
+  editorEl.style.width = (EDGE_EDITOR_W * zoom) + "px";
+  editorEl.style.height = (EDGE_EDITOR_H * zoom) + "px";
+  editorEl.style.fontSize = (12 * zoom) + "px";
 }
 
-function startEdit(id) {
-  const node = diagram.nodes.find((n) => n.id === id);
-  if (!node) return;
-  editing = id;
-  selectedIds.clear();
-  selectedIds.add(id);
+function startEdit(kind, id) {
+  if (kind === "node") {
+    const node = diagram.nodes.find((n) => n.id === id);
+    if (!node) return;
+    selectedIds.clear();
+    selectedIds.add(id);
+    selectedEdgeId = null;
+    editorEl.value = node.data.label || "";
+  } else if (kind === "edge") {
+    const edge = diagram.edges.find((e) => e.id === id);
+    if (!edge) return;
+    selectedEdgeId = id;
+    selectedIds.clear();
+    editorEl.value = edge.label || "";
+  } else {
+    return;
+  }
+  editing = { kind, id };
   dragging = null;
-  editorEl.value = node.data.label || "";
   editorEl.hidden = false;
   positionEditor();
   // Defer focus one frame so layout settles before selecting the text.
@@ -431,10 +484,15 @@ function startEdit(id) {
 
 function commitEdit(value) {
   if (!editing) return;
-  const node = diagram.nodes.find((n) => n.id === editing);
-  if (node) {
-    const v = (value || "").trim();
-    if (v) node.data.label = v;
+  const v = (value || "").trim();
+  if (editing.kind === "node") {
+    const node = diagram.nodes.find((n) => n.id === editing.id);
+    // Empty input is ignored for nodes (we don't want labelless boxes).
+    if (node && v) node.data.label = v;
+  } else if (editing.kind === "edge") {
+    const edge = diagram.edges.find((e) => e.id === editing.id);
+    // Empty input clears the edge label; the edge stays.
+    if (edge) edge.label = v;
   }
   editing = null;
   editorEl.hidden = true;
@@ -488,11 +546,15 @@ canvas.addEventListener("mousedown", (evt) => {
   const nodeEl = evt.target.closest(".node");
   const edgeEl = evt.target.closest(".edge-group");
 
-  // Double-click on a node enters in-place edit. Detected via evt.detail
-  // because we re-render on every click, which destroys the target the
-  // browser uses to correlate clicks for the native `dblclick` event.
+  // Double-click on a node or edge enters in-place edit. Detected via
+  // evt.detail because we re-render on every click, which destroys the
+  // target the browser uses to correlate native `dblclick` events.
   if (nodeEl && evt.detail >= 2) {
-    startEdit(nodeEl.dataset.id);
+    startEdit("node", nodeEl.dataset.id);
+    return;
+  }
+  if (edgeEl && !nodeEl && evt.detail >= 2) {
+    startEdit("edge", edgeEl.dataset.id);
     return;
   }
 
