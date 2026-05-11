@@ -1252,7 +1252,116 @@ exportBtn.addEventListener("click", () => {
 function exportMenuItems() {
   return [
     { label: "Export as JSON", action: exportJSON },
+    { label: "Export as SVG",  action: () => exportSVG().catch(logExportError) },
+    { label: "Export as PNG",  action: () => exportPNG().catch(logExportError) },
   ];
+}
+
+function logExportError(e) {
+  console.error(e);
+  setStatus("export failed");
+}
+
+function nodesBBox() {
+  if (diagram.nodes.length === 0) {
+    return { x: -200, y: -100, w: 400, h: 200 };
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of diagram.nodes) {
+    const w = nodeWidth(n);
+    if (n.position.x < minX) minX = n.position.x;
+    if (n.position.y < minY) minY = n.position.y;
+    if (n.position.x + w > maxX) maxX = n.position.x + w;
+    if (n.position.y + NODE_H > maxY) maxY = n.position.y + NODE_H;
+  }
+  const PAD = 30;
+  return {
+    x: minX - PAD,
+    y: minY - PAD,
+    w: (maxX - minX) + PAD * 2,
+    h: (maxY - minY) + PAD * 2,
+  };
+}
+
+let _cssCache = null;
+async function loadCanvasCss() {
+  if (_cssCache !== null) return _cssCache;
+  const res = await fetch("/style.css");
+  _cssCache = await res.text();
+  return _cssCache;
+}
+
+// Builds a self-contained <svg> ready to be serialised: viewport transform
+// reset, transient overlays removed, selection highlights stripped, app CSS
+// inlined as <style>. Dimensions match the bounding box of the diagram.
+async function buildExportSvg() {
+  const bbox = nodesBBox();
+  const cloned = canvas.cloneNode(true);
+  const viewportClone = cloned.querySelector("#viewport");
+  if (viewportClone) viewportClone.removeAttribute("transform");
+  cloned.querySelectorAll(
+    ".lasso, .pending-edge, .conn-handle, .edge-hit"
+  ).forEach((el) => el.remove());
+  cloned.querySelectorAll(".selected").forEach((el) =>
+    el.classList.remove("selected")
+  );
+  cloned.setAttribute("viewBox", `${bbox.x} ${bbox.y} ${bbox.w} ${bbox.h}`);
+  cloned.setAttribute("width", String(bbox.w));
+  cloned.setAttribute("height", String(bbox.h));
+  cloned.removeAttribute("id");
+  cloned.removeAttribute("class");
+  cloned.style.cssText = "";
+  // Inline the app CSS so the SVG looks right outside the browser.
+  const css = await loadCanvasCss();
+  const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  styleEl.textContent = css;
+  cloned.insertBefore(styleEl, cloned.firstChild);
+  return { svgEl: cloned, bbox };
+}
+
+async function exportSVG() {
+  const { svgEl } = await buildExportSvg();
+  const xml = new XMLSerializer().serializeToString(svgEl);
+  const blob = new Blob(
+    [`<?xml version="1.0" encoding="UTF-8"?>\n`, xml],
+    { type: "image/svg+xml" }
+  );
+  downloadBlob(blob, sanitizeFilename(diagram.name) + ".svg");
+}
+
+async function exportPNG() {
+  const { svgEl, bbox } = await buildExportSvg();
+  const xml = new XMLSerializer().serializeToString(svgEl);
+  const svgBlob = new Blob([xml], { type: "image/svg+xml" });
+  const svgUrl = URL.createObjectURL(svgBlob);
+  try {
+    const img = await loadImage(svgUrl);
+    const SCALE = 2; // hi-dpi
+    const c = document.createElement("canvas");
+    c.width = Math.ceil(bbox.w * SCALE);
+    c.height = Math.ceil(bbox.h * SCALE);
+    const ctx = c.getContext("2d");
+    // Solid dark background matches what the user sees in-app.
+    ctx.fillStyle = "#0b0b0d";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise((resolve) =>
+      c.toBlob(resolve, "image/png")
+    );
+    if (!blob) throw new Error("toBlob returned null");
+    downloadBlob(blob, sanitizeFilename(diagram.name) + ".png");
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(e);
+    img.src = url;
+  });
 }
 
 init().catch((e) => {
