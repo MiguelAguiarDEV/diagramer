@@ -32,6 +32,8 @@ const sidebarListEl = document.getElementById("diagram-list");
 const newDiagramBtn = document.getElementById("new-diagram");
 const diagramNameEl = document.getElementById("diagram-name");
 const ctxMenuEl = document.getElementById("ctx-menu");
+const importBtn = document.getElementById("import");
+const exportBtn = document.getElementById("export");
 
 let diagram = null;
 let selectedIds = new Set();
@@ -1153,6 +1155,105 @@ document.addEventListener("mousedown", (evt) => {
     hideContextMenu();
   }
 }, true);
+
+// ---------- import / export ----------
+
+function sanitizeFilename(s) {
+  return (s || "diagram").trim().replace(/[^a-z0-9._-]+/gi, "_") || "diagram";
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportJSON() {
+  const payload = {
+    name: diagram.name,
+    nodes: diagram.nodes,
+    edges: diagram.edges,
+    viewport: diagram.viewport,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  downloadBlob(blob, sanitizeFilename(diagram.name) + ".json");
+}
+
+function isValidImport(raw) {
+  if (typeof raw !== "object" || raw === null) return false;
+  if (!Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) return false;
+  for (const n of raw.nodes) {
+    if (typeof n.id !== "string") return false;
+    if (!n.position || typeof n.position.x !== "number" || typeof n.position.y !== "number") return false;
+    if (!n.data || typeof n.data.label !== "string") return false;
+  }
+  for (const e of raw.edges) {
+    if (typeof e.id !== "string" || typeof e.source !== "string" || typeof e.target !== "string") return false;
+    if (e.label !== undefined && typeof e.label !== "string") return false;
+  }
+  return true;
+}
+
+async function importJSONFile(file) {
+  let raw;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch {
+    setStatus("import: invalid JSON");
+    return;
+  }
+  if (!isValidImport(raw)) {
+    setStatus("import: bad shape");
+    return;
+  }
+  const name = (typeof raw.name === "string" && raw.name.trim())
+    ? raw.name.trim()
+    : file.name.replace(/\.json$/i, "") || "Imported";
+  try {
+    const created = await api("POST", "/api/diagrams", { name });
+    await api("PUT", `/api/diagrams/${created.id}`, {
+      name,
+      nodes: raw.nodes,
+      edges: raw.edges,
+      viewport: raw.viewport || { x: 0, y: 0, zoom: 1 },
+    });
+    await refreshSidebar();
+    await loadDiagram(created.id, { push: true });
+    setStatus("imported");
+  } catch (e) {
+    setStatus("import failed");
+    console.error(e);
+  }
+}
+
+importBtn.addEventListener("click", () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (file) importJSONFile(file);
+  });
+  input.click();
+});
+
+exportBtn.addEventListener("click", () => {
+  const rect = exportBtn.getBoundingClientRect();
+  showContextMenu(rect.left, rect.bottom + 2, exportMenuItems());
+});
+
+function exportMenuItems() {
+  return [
+    { label: "Export as JSON", action: exportJSON },
+  ];
+}
 
 init().catch((e) => {
   console.error(e);
