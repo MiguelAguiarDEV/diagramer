@@ -1013,14 +1013,17 @@ function singleEdgeMenuItems(id) {
 }
 
 function multiNodesMenuItems() {
+  // Naming convention: "Vertical · …" means "line them up on a vertical line"
+  // (same X, varied Y). "Horizontal · …" means line them up on a horizontal
+  // line (same Y, varied X).
   return [
-    { label: "Align left", action: () => alignSelected("x", "min") },
-    { label: "Center horizontally", action: () => alignSelected("x", "center") },
-    { label: "Align right", action: () => alignSelected("x", "max") },
+    { label: "Vertical · left",   action: () => alignSelected("x", "min") },
+    { label: "Vertical · center", action: () => alignSelected("x", "center") },
+    { label: "Vertical · right",  action: () => alignSelected("x", "max") },
     { separator: true },
-    { label: "Align top", action: () => alignSelected("y", "min") },
-    { label: "Center vertically", action: () => alignSelected("y", "center") },
-    { label: "Align bottom", action: () => alignSelected("y", "max") },
+    { label: "Horizontal · top",    action: () => alignSelected("y", "min") },
+    { label: "Horizontal · center", action: () => alignSelected("y", "center") },
+    { label: "Horizontal · bottom", action: () => alignSelected("y", "max") },
     { separator: true },
     { label: "Delete all", action: () => deleteSelected() },
   ];
