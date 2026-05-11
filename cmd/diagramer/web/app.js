@@ -33,7 +33,7 @@ const newDiagramBtn = document.getElementById("new-diagram");
 const diagramNameEl = document.getElementById("diagram-name");
 
 let diagram = null;
-let selectedId = null;
+let selectedIds = new Set();
 let selectedEdgeId = null;
 let connecting = false;
 let connectSource = null;
@@ -42,6 +42,7 @@ let panning = null;
 let spaceDown = false;
 let ctrlDown = false;
 let pendingEdge = null;
+let lasso = null;
 let editing = null;
 let saveTimer = null;
 
@@ -151,12 +152,13 @@ async function flushSave() {
 async function loadDiagram(id, opts = {}) {
   await flushSave();
   // Reset transient interaction state.
-  selectedId = null;
+  selectedIds.clear();
   selectedEdgeId = null;
   connecting = false;
   connectSource = null;
   dragging = null;
   pendingEdge = null;
+  lasso = null;
   if (editing) { editing = null; editorEl.hidden = true; }
 
   diagram = await api("GET", `/api/diagrams/${id}`);
@@ -242,7 +244,7 @@ function render() {
   for (const n of diagram.nodes) {
     const g = svg("g", {
       class: "node" +
-        (n.id === selectedId ? " selected" : "") +
+        (selectedIds.has(n.id) ? " selected" : "") +
         (n.id === connectSource ? " connect-source" : ""),
       "data-id": n.id,
       transform: `translate(${n.position.x},${n.position.y})`,
@@ -269,11 +271,42 @@ function render() {
 
   if (editing) positionEditor();
 
-  deleteBtn.disabled = selectedId === null && selectedEdgeId === null;
+  deleteBtn.disabled = selectedIds.size === 0 && selectedEdgeId === null;
   connectBtn.classList.toggle("active", connecting);
   canvas.classList.toggle("connecting", connecting);
   applyViewport();
   syncPendingEdge();
+  syncLasso();
+}
+
+// Draws (or removes) the dashed lasso rectangle in model coords.
+function syncLasso() {
+  let rect = edgesLayer.querySelector(".lasso");
+  if (!lasso) {
+    if (rect) rect.remove();
+    return;
+  }
+  const bbox = lassoBBox();
+  if (!rect) {
+    rect = svg("rect", { class: "lasso" });
+    edgesLayer.appendChild(rect);
+  }
+  rect.setAttribute("x", bbox.x);
+  rect.setAttribute("y", bbox.y);
+  rect.setAttribute("width", bbox.w);
+  rect.setAttribute("height", bbox.h);
+}
+
+function lassoBBox() {
+  const x = Math.min(lasso.start.x, lasso.current.x);
+  const y = Math.min(lasso.start.y, lasso.current.y);
+  const w = Math.abs(lasso.current.x - lasso.start.x);
+  const h = Math.abs(lasso.current.y - lasso.start.y);
+  return { x, y, w, h };
+}
+
+function rectsOverlap(a, b) {
+  return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
 }
 
 // Draws (or removes) the ghost line shown while dragging from a "+" handle.
@@ -338,26 +371,29 @@ addBtn.addEventListener("click", () => {
 connectBtn.addEventListener("click", () => {
   connecting = !connecting;
   connectSource = null;
-  selectedId = null;
+  selectedIds.clear();
   render();
 });
 
 deleteBtn.addEventListener("click", deleteSelected);
 
 function deleteSelected() {
+  let changed = false;
   if (selectedEdgeId) {
     diagram.edges = diagram.edges.filter((e) => e.id !== selectedEdgeId);
     selectedEdgeId = null;
-    save();
-    render();
-    return;
+    changed = true;
   }
-  if (selectedId) {
-    diagram.nodes = diagram.nodes.filter((n) => n.id !== selectedId);
+  if (selectedIds.size > 0) {
+    const ids = selectedIds;
+    diagram.nodes = diagram.nodes.filter((n) => !ids.has(n.id));
     diagram.edges = diagram.edges.filter(
-      (e) => e.source !== selectedId && e.target !== selectedId
+      (e) => !ids.has(e.source) && !ids.has(e.target)
     );
-    selectedId = null;
+    selectedIds = new Set();
+    changed = true;
+  }
+  if (changed) {
     save();
     render();
   }
@@ -382,7 +418,8 @@ function startEdit(id) {
   const node = diagram.nodes.find((n) => n.id === id);
   if (!node) return;
   editing = id;
-  selectedId = id;
+  selectedIds.clear();
+  selectedIds.add(id);
   dragging = null;
   editorEl.value = node.data.label || "";
   editorEl.hidden = false;
@@ -460,16 +497,24 @@ canvas.addEventListener("mousedown", (evt) => {
   }
 
   if (!nodeEl && !edgeEl) {
-    selectedId = null;
-    selectedEdgeId = null;
+    // Click on empty canvas starts a lasso selection.
+    const start = clientToModel(evt);
+    lasso = {
+      start,
+      current: { ...start },
+      additive: evt.shiftKey,
+      baseSelection: new Set(selectedIds),
+    };
     connectSource = null;
+    selectedEdgeId = null;
+    if (!evt.shiftKey) selectedIds.clear();
     render();
     return;
   }
 
   if (edgeEl && !nodeEl) {
     selectedEdgeId = edgeEl.dataset.id;
-    selectedId = null;
+    selectedIds.clear();
     connectSource = null;
     render();
     return;
@@ -495,15 +540,32 @@ canvas.addEventListener("mousedown", (evt) => {
     return;
   }
 
-  selectedId = id;
-  const node = diagram.nodes.find((n) => n.id === id);
+  // Shift+click toggles a node in the selection without starting a drag.
+  if (evt.shiftKey) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+    render();
+    return;
+  }
+
+  // Plain click on an unselected node clears the selection and picks just it.
+  // Click on an already-selected node keeps the set so we can drag-move all.
+  if (!selectedIds.has(id)) {
+    selectedIds.clear();
+    selectedIds.add(id);
+  }
+
   const p = clientToModel(evt);
-  dragging = {
-    id,
-    offsetX: p.x - node.position.x,
-    offsetY: p.y - node.position.y,
-    moved: false,
-  };
+  const offsets = new Map();
+  for (const sid of selectedIds) {
+    const node = diagram.nodes.find((n) => n.id === sid);
+    if (!node) continue;
+    offsets.set(sid, {
+      dx: p.x - node.position.x,
+      dy: p.y - node.position.y,
+    });
+  }
+  dragging = { offsets, moved: false };
   render();
 });
 
@@ -519,12 +581,19 @@ window.addEventListener("mousemove", (evt) => {
     syncPendingEdge();
     return;
   }
+  if (lasso) {
+    lasso.current = clientToModel(evt);
+    syncLasso();
+    return;
+  }
   if (!dragging) return;
-  const node = diagram.nodes.find((n) => n.id === dragging.id);
-  if (!node) return;
   const p = clientToModel(evt);
-  node.position.x = p.x - dragging.offsetX;
-  node.position.y = p.y - dragging.offsetY;
+  for (const [sid, off] of dragging.offsets) {
+    const node = diagram.nodes.find((n) => n.id === sid);
+    if (!node) continue;
+    node.position.x = p.x - off.dx;
+    node.position.y = p.y - off.dy;
+  }
   dragging.moved = true;
   render();
 });
@@ -554,6 +623,22 @@ window.addEventListener("mouseup", (evt) => {
       }
     }
     pendingEdge = null;
+    render();
+    return;
+  }
+  if (lasso) {
+    const box = lassoBBox();
+    // A tiny drag (≤3 model px in either axis) is treated as a plain click
+    // on empty: keep the deselection that the mousedown already applied.
+    if (box.w > 3 || box.h > 3) {
+      const next = lasso.additive ? new Set(lasso.baseSelection) : new Set();
+      for (const n of diagram.nodes) {
+        const nb = { x: n.position.x, y: n.position.y, w: nodeWidth(n), h: NODE_H };
+        if (rectsOverlap(box, nb)) next.add(n.id);
+      }
+      selectedIds = next;
+    }
+    lasso = null;
     render();
     return;
   }
@@ -614,7 +699,7 @@ window.addEventListener("keydown", (evt) => {
   }
 
   if (evt.key === "Delete" || evt.key === "Backspace") {
-    if (selectedId || selectedEdgeId) {
+    if (selectedIds.size > 0 || selectedEdgeId) {
       evt.preventDefault();
       deleteSelected();
     }
@@ -624,14 +709,15 @@ window.addEventListener("keydown", (evt) => {
   if (evt.key === "Escape") {
     if (editing) { cancelEdit(); return; }
     if (pendingEdge) { pendingEdge = null; syncPendingEdge(); return; }
+    if (lasso) { lasso = null; render(); return; }
     if (connecting || connectSource) {
       connecting = false;
       connectSource = null;
       render();
       return;
     }
-    if (selectedId || selectedEdgeId) {
-      selectedId = null;
+    if (selectedIds.size > 0 || selectedEdgeId) {
+      selectedIds.clear();
       selectedEdgeId = null;
       render();
     }
