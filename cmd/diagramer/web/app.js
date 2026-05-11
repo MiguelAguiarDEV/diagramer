@@ -31,6 +31,7 @@ const editorEl = document.getElementById("node-editor");
 const sidebarListEl = document.getElementById("diagram-list");
 const newDiagramBtn = document.getElementById("new-diagram");
 const diagramNameEl = document.getElementById("diagram-name");
+const ctxMenuEl = document.getElementById("ctx-menu");
 
 let diagram = null;
 let selectedIds = new Set();
@@ -370,23 +371,25 @@ function clientToModel(evt) {
   return { x: (sx - x) / zoom, y: (sy - y) / zoom };
 }
 
-addBtn.addEventListener("click", () => {
+function addBoxAt(modelX, modelY) {
   const label = prompt("Box text:");
   if (label === null) return;
-  // Drop the new box near the centre of the visible viewport, in model coords.
-  const rect = canvas.getBoundingClientRect();
-  const { x: vx, y: vy, zoom } = diagram.viewport;
-  const mx = (rect.width / 2 - vx) / zoom;
-  const my = (rect.height / 2 - vy) / zoom;
-  const x = mx - NODE_MIN_W / 2 + (Math.random() - 0.5) * 80;
-  const y = my - NODE_H / 2 + (Math.random() - 0.5) * 80;
   diagram.nodes.push({
     id: uid(),
-    position: { x, y },
+    position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
     data: { label: label.trim() || "Untitled" },
   });
   save();
   render();
+}
+
+addBtn.addEventListener("click", () => {
+  // Drop the new box near the centre of the visible viewport, in model coords.
+  const rect = canvas.getBoundingClientRect();
+  const { x: vx, y: vy, zoom } = diagram.viewport;
+  const mx = (rect.width / 2 - vx) / zoom + (Math.random() - 0.5) * 80;
+  const my = (rect.height / 2 - vy) / zoom + (Math.random() - 0.5) * 80;
+  addBoxAt(mx, my);
 });
 
 connectBtn.addEventListener("click", () => {
@@ -769,6 +772,7 @@ window.addEventListener("keydown", (evt) => {
   }
 
   if (evt.key === "Escape") {
+    if (!ctxMenuEl.hidden) { hideContextMenu(); return; }
     if (editing) { cancelEdit(); return; }
     if (pendingEdge) { pendingEdge = null; syncPendingEdge(); return; }
     if (lasso) { lasso = null; render(); return; }
@@ -913,6 +917,156 @@ window.addEventListener("popstate", async () => {
     await loadDiagram(id, { push: false });
   }
 });
+
+// ---------- context menu ----------
+
+function showContextMenu(clientX, clientY, items) {
+  ctxMenuEl.innerHTML = "";
+  for (const it of items) {
+    if (it.separator) {
+      const sep = document.createElement("div");
+      sep.className = "sep";
+      ctxMenuEl.appendChild(sep);
+      continue;
+    }
+    const btn = document.createElement("button");
+    btn.textContent = it.label;
+    btn.addEventListener("click", () => {
+      hideContextMenu();
+      it.action();
+    });
+    ctxMenuEl.appendChild(btn);
+  }
+  // Clamp into viewport so it doesn't fall off-screen.
+  ctxMenuEl.hidden = false;
+  const { innerWidth, innerHeight } = window;
+  const rect = ctxMenuEl.getBoundingClientRect();
+  const x = Math.min(clientX, innerWidth - rect.width - 4);
+  const y = Math.min(clientY, innerHeight - rect.height - 4);
+  ctxMenuEl.style.left = x + "px";
+  ctxMenuEl.style.top = y + "px";
+}
+
+function hideContextMenu() {
+  ctxMenuEl.hidden = true;
+}
+
+// Align every node in selectedIds along the given axis.
+//   axis: "x" (line up horizontally → same X-related coordinate)
+//   mode: "min" (left/top), "center", "max" (right/bottom)
+function alignSelected(axis, mode) {
+  const nodes = [...selectedIds]
+    .map((id) => diagram.nodes.find((n) => n.id === id))
+    .filter(Boolean);
+  if (nodes.length < 2) return;
+
+  if (axis === "x") {
+    const lefts = nodes.map((n) => n.position.x);
+    const rights = nodes.map((n) => n.position.x + nodeWidth(n));
+    let target;
+    if (mode === "min") target = Math.min(...lefts);
+    else if (mode === "max") target = Math.max(...rights);
+    else target = (Math.min(...lefts) + Math.max(...rights)) / 2;
+    for (const n of nodes) {
+      const w = nodeWidth(n);
+      if (mode === "min") n.position.x = target;
+      else if (mode === "max") n.position.x = target - w;
+      else n.position.x = target - w / 2;
+    }
+  } else {
+    const tops = nodes.map((n) => n.position.y);
+    const bottoms = nodes.map((n) => n.position.y + NODE_H);
+    let target;
+    if (mode === "min") target = Math.min(...tops);
+    else if (mode === "max") target = Math.max(...bottoms);
+    else target = (Math.min(...tops) + Math.max(...bottoms)) / 2;
+    for (const n of nodes) {
+      if (mode === "min") n.position.y = target;
+      else if (mode === "max") n.position.y = target - NODE_H;
+      else n.position.y = target - NODE_H / 2;
+    }
+  }
+  save();
+  render();
+}
+
+function emptyMenuItems(modelPos) {
+  return [
+    { label: "Add box here", action: () => addBoxAt(modelPos.x, modelPos.y) },
+  ];
+}
+
+function singleNodeMenuItems(id) {
+  return [
+    { label: "Edit text", action: () => startEdit("node", id) },
+    { separator: true },
+    { label: "Delete", action: () => deleteSelected() },
+  ];
+}
+
+function singleEdgeMenuItems(id) {
+  return [
+    { label: "Edit label", action: () => startEdit("edge", id) },
+    { separator: true },
+    { label: "Delete", action: () => deleteSelected() },
+  ];
+}
+
+function multiNodesMenuItems() {
+  return [
+    { label: "Align left", action: () => alignSelected("x", "min") },
+    { label: "Center horizontally", action: () => alignSelected("x", "center") },
+    { label: "Align right", action: () => alignSelected("x", "max") },
+    { separator: true },
+    { label: "Align top", action: () => alignSelected("y", "min") },
+    { label: "Center vertically", action: () => alignSelected("y", "center") },
+    { label: "Align bottom", action: () => alignSelected("y", "max") },
+    { separator: true },
+    { label: "Delete all", action: () => deleteSelected() },
+  ];
+}
+
+canvas.addEventListener("contextmenu", (evt) => {
+  evt.preventDefault();
+  hideContextMenu();
+  if (editing) return; // don't pop the menu while editing
+
+  const nodeEl = evt.target.closest(".node");
+  const edgeEl = evt.target.closest(".edge-group");
+  let items;
+
+  if (nodeEl) {
+    const id = nodeEl.dataset.id;
+    // Right-click on a non-selected node selects only that one (convention).
+    if (!selectedIds.has(id)) {
+      selectedIds.clear();
+      selectedIds.add(id);
+      selectedEdgeId = null;
+      render();
+    }
+    items = selectedIds.size > 1
+      ? multiNodesMenuItems()
+      : singleNodeMenuItems(id);
+  } else if (edgeEl) {
+    const id = edgeEl.dataset.id;
+    selectedEdgeId = id;
+    selectedIds.clear();
+    render();
+    items = singleEdgeMenuItems(id);
+  } else {
+    items = emptyMenuItems(clientToModel(evt));
+  }
+
+  showContextMenu(evt.clientX, evt.clientY, items);
+});
+
+// Any click outside the menu closes it. Use capture so it runs before the
+// canvas mousedown handler that would otherwise re-render and steal focus.
+document.addEventListener("mousedown", (evt) => {
+  if (!ctxMenuEl.hidden && !ctxMenuEl.contains(evt.target)) {
+    hideContextMenu();
+  }
+}, true);
 
 init().catch((e) => {
   console.error(e);

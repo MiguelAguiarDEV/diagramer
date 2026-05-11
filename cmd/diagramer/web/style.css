@@ -166,6 +166,36 @@ main {
 }
 #node-editor[hidden] { display: none; }
 
+#ctx-menu {
+  position: absolute;
+  background: #1c1d23;
+  border: 1px solid #2a2b32;
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 180px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  user-select: none;
+}
+#ctx-menu[hidden] { display: none; }
+#ctx-menu button {
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: #e5e7eb;
+  border: none;
+  text-align: left;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: 13px system-ui, sans-serif;
+}
+#ctx-menu button:hover { background: #2563eb; color: #fff; }
+#ctx-menu .sep {
+  height: 1px;
+  background: #2a2b32;
+  margin: 4px 0;
+}
+
 .edge {
   stroke: #6b7280;
   stroke-width: 1.5;
