@@ -36,6 +36,7 @@ let connecting = false;
 let connectSource = null;
 let dragging = null;
 let panning = null;
+let spaceDown = false;
 let pendingEdge = null;
 let editing = null;
 let saveTimer = null;
@@ -330,17 +331,21 @@ editorEl.addEventListener("blur", () => {
   if (editing) commitEdit(editorEl.value);
 });
 
+function startPan(evt) {
+  evt.preventDefault();
+  panning = {
+    sx: evt.clientX,
+    sy: evt.clientY,
+    vx: diagram.viewport.x,
+    vy: diagram.viewport.y,
+  };
+  canvas.classList.add("panning");
+}
+
 canvas.addEventListener("mousedown", (evt) => {
-  // Middle button starts a pan, regardless of what's under the cursor.
-  if (evt.button === 1) {
-    evt.preventDefault();
-    panning = {
-      sx: evt.clientX,
-      sy: evt.clientY,
-      vx: diagram.viewport.x,
-      vy: diagram.viewport.y,
-    };
-    canvas.classList.add("panning");
+  // Middle button or Space+left = pan, regardless of what's under the cursor.
+  if (evt.button === 1 || (evt.button === 0 && spaceDown)) {
+    startPan(evt);
     return;
   }
   // While editing, let the input handle its own clicks; ignore on canvas.
@@ -471,6 +476,17 @@ window.addEventListener("mouseup", (evt) => {
 
 canvas.addEventListener("wheel", (evt) => {
   evt.preventDefault();
+
+  // Pinch on trackpads and Ctrl+wheel on desktop arrive as wheel events with
+  // ctrlKey=true. Plain two-finger scroll has ctrlKey=false → treat as pan.
+  if (!evt.ctrlKey) {
+    diagram.viewport.x -= evt.deltaX;
+    diagram.viewport.y -= evt.deltaY;
+    applyViewport();
+    save();
+    return;
+  }
+
   const oldZoom = diagram.viewport.zoom || 1;
   const factor = evt.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
   const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, oldZoom * factor));
@@ -491,6 +507,16 @@ canvas.addEventListener("wheel", (evt) => {
 window.addEventListener("keydown", (evt) => {
   const tag = evt.target && evt.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+  // Hold Space to pan with left-click drag (Figma/Miro convention).
+  if (evt.code === "Space") {
+    evt.preventDefault();
+    if (!evt.repeat && !spaceDown) {
+      spaceDown = true;
+      canvas.classList.add("space-pan");
+    }
+    return;
+  }
 
   if (evt.key === "Delete" || evt.key === "Backspace") {
     if (selectedId || selectedEdgeId) {
@@ -514,6 +540,22 @@ window.addEventListener("keydown", (evt) => {
       selectedEdgeId = null;
       render();
     }
+  }
+});
+
+window.addEventListener("keyup", (evt) => {
+  if (evt.code === "Space" && spaceDown) {
+    spaceDown = false;
+    canvas.classList.remove("space-pan");
+  }
+});
+
+// If the window loses focus mid-press (e.g. Alt-tab), forget Space so the
+// cursor doesn't get stuck in grab mode on return.
+window.addEventListener("blur", () => {
+  if (spaceDown) {
+    spaceDown = false;
+    canvas.classList.remove("space-pan");
   }
 });
 
