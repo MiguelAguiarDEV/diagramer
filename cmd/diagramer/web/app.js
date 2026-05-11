@@ -28,6 +28,9 @@ const connectBtn = document.getElementById("connect-mode");
 const deleteBtn = document.getElementById("delete");
 const statusEl = document.getElementById("status");
 const editorEl = document.getElementById("node-editor");
+const sidebarListEl = document.getElementById("diagram-list");
+const newDiagramBtn = document.getElementById("new-diagram");
+const diagramNameEl = document.getElementById("diagram-name");
 
 let diagram = null;
 let selectedId = null;
@@ -73,13 +76,97 @@ async function api(method, path, body) {
   return res.json();
 }
 
+// Parses the diagram id out of a /d/{id} URL, or returns null for any other.
+function diagramIdFromPath() {
+  const m = location.pathname.match(/^\/d\/([^/]+)/);
+  return m ? m[1] : null;
+}
+
 async function init() {
+  const targetId = diagramIdFromPath();
   let list = await api("GET", "/api/diagrams");
-  if (!list || list.length === 0) {
-    const created = await api("POST", "/api/diagrams", { name: "Untitled" });
-    diagram = await api("GET", `/api/diagrams/${created.id}`);
+  if (!list) list = [];
+
+  let toLoad = null;
+  if (targetId && list.some((d) => d.id === targetId)) {
+    toLoad = targetId;
+  } else if (list.length > 0) {
+    toLoad = list[0].id;
   } else {
-    diagram = await api("GET", `/api/diagrams/${list[0].id}`);
+    const created = await api("POST", "/api/diagrams", { name: "Untitled" });
+    list = [created];
+    toLoad = created.id;
+  }
+
+  renderSidebar(list, toLoad);
+  await loadDiagram(toLoad, { push: targetId !== toLoad });
+}
+
+async function refreshSidebar() {
+  const list = (await api("GET", "/api/diagrams")) || [];
+  renderSidebar(list, diagram && diagram.id);
+}
+
+function renderSidebar(list, activeId) {
+  sidebarListEl.innerHTML = "";
+  // Most-recently updated first.
+  list.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+  for (const m of list) {
+    const li = document.createElement("li");
+    if (m.id === activeId) li.classList.add("active");
+    li.dataset.id = m.id;
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = m.name;
+    name.title = m.name;
+    li.appendChild(name);
+    const del = document.createElement("button");
+    del.className = "del";
+    del.title = "Delete";
+    del.textContent = "×";
+    li.appendChild(del);
+    sidebarListEl.appendChild(li);
+  }
+}
+
+// Flush a pending debounced save so we don't lose the last edit when
+// navigating away from the current diagram.
+async function flushSave() {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!diagram) return;
+  try {
+    await api("PUT", `/api/diagrams/${diagram.id}`, {
+      name: diagram.name,
+      nodes: diagram.nodes,
+      edges: diagram.edges,
+      viewport: diagram.viewport,
+    });
+  } catch (e) {
+    console.error("flushSave failed", e);
+  }
+}
+
+async function loadDiagram(id, opts = {}) {
+  await flushSave();
+  // Reset transient interaction state.
+  selectedId = null;
+  selectedEdgeId = null;
+  connecting = false;
+  connectSource = null;
+  dragging = null;
+  pendingEdge = null;
+  if (editing) { editing = null; editorEl.hidden = true; }
+
+  diagram = await api("GET", `/api/diagrams/${id}`);
+  diagramNameEl.textContent = diagram.name;
+  document.title = `${diagram.name} — diagramer`;
+  for (const li of sidebarListEl.children) {
+    li.classList.toggle("active", li.dataset.id === id);
+  }
+  if (opts.push !== false) {
+    history.pushState({ id }, "", `/d/${id}`);
   }
   render();
 }
@@ -569,6 +656,114 @@ window.addEventListener("blur", () => {
     canvas.classList.remove("space-pan");
   }
   ctrlDown = false;
+});
+
+newDiagramBtn.addEventListener("click", async () => {
+  const name = prompt("Name:", "Untitled");
+  if (name === null) return;
+  const trimmed = name.trim() || "Untitled";
+  try {
+    const created = await api("POST", "/api/diagrams", { name: trimmed });
+    await refreshSidebar();
+    await loadDiagram(created.id, { push: true });
+  } catch (e) {
+    setStatus("create failed");
+    console.error(e);
+  }
+});
+
+sidebarListEl.addEventListener("click", async (evt) => {
+  const li = evt.target.closest("li");
+  if (!li) return;
+  const id = li.dataset.id;
+
+  if (evt.target.classList.contains("del")) {
+    evt.stopPropagation();
+    const name = li.querySelector(".name").textContent;
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      await api("DELETE", `/api/diagrams/${id}`);
+    } catch (e) {
+      setStatus("delete failed");
+      console.error(e);
+      return;
+    }
+    // If we deleted the currently open diagram, fall back to another or
+    // create a fresh one so we always have something on screen.
+    if (diagram && diagram.id === id) {
+      const list = (await api("GET", "/api/diagrams")) || [];
+      let next = list[0];
+      if (!next) {
+        next = await api("POST", "/api/diagrams", { name: "Untitled" });
+      }
+      renderSidebar(list.length ? list : [next], next.id);
+      await loadDiagram(next.id, { push: true });
+    } else {
+      await refreshSidebar();
+    }
+    return;
+  }
+
+  if (id !== (diagram && diagram.id)) {
+    await loadDiagram(id, { push: true });
+  }
+});
+
+// Double-click a name to rename in place.
+sidebarListEl.addEventListener("dblclick", (evt) => {
+  const nameEl = evt.target.closest(".name");
+  if (!nameEl) return;
+  const li = nameEl.parentElement;
+  startRename(li, nameEl);
+});
+
+function startRename(li, nameEl) {
+  const id = li.dataset.id;
+  const original = nameEl.textContent;
+  const input = document.createElement("input");
+  input.className = "name-input";
+  input.value = original;
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = async (commit) => {
+    if (done) return;
+    done = true;
+    const newName = input.value.trim();
+    const replacement = document.createElement("span");
+    replacement.className = "name";
+    replacement.title = commit && newName ? newName : original;
+    replacement.textContent = commit && newName ? newName : original;
+    input.replaceWith(replacement);
+    if (commit && newName && newName !== original) {
+      try {
+        await api("PATCH", `/api/diagrams/${id}`, { name: newName });
+        if (diagram && diagram.id === id) {
+          diagram.name = newName;
+          diagramNameEl.textContent = newName;
+          document.title = `${newName} — diagramer`;
+        }
+      } catch (e) {
+        setStatus("rename failed");
+        console.error(e);
+      }
+    }
+  };
+
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+    else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+window.addEventListener("popstate", async () => {
+  const id = diagramIdFromPath();
+  if (id && (!diagram || diagram.id !== id)) {
+    await loadDiagram(id, { push: false });
+  }
 });
 
 init().catch((e) => {
