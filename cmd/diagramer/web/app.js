@@ -36,6 +36,7 @@ const importBtn = document.getElementById("import");
 const exportBtn = document.getElementById("export");
 
 let diagram = null;
+let currentEtag = null;
 let selectedIds = new Set();
 let selectedEdgeId = null;
 let connecting = false;
@@ -76,15 +77,25 @@ function edgeExists(srcId, tgtId) {
   );
 }
 
-async function api(method, path, body) {
+// opts: { ifMatch?: string, wantEtag?: bool }
+// Throws on non-2xx; the error has .status so callers can branch on e.g. 412.
+async function api(method, path, body, opts = {}) {
+  const headers = body ? { "Content-Type": "application/json" } : {};
+  if (opts.ifMatch) headers["If-Match"] = opts.ifMatch;
   const res = await fetch(path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
-  if (res.status === 204) return null;
-  return res.json();
+  if (!res.ok) {
+    const err = new Error(`${method} ${path} → ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  let data = null;
+  if (res.status !== 204) data = await res.json();
+  if (opts.wantEtag) return { data, etag: res.headers.get("ETag") };
+  return data;
 }
 
 // Parses the diagram id out of a /d/{id} URL, or returns null for any other.
@@ -147,15 +158,47 @@ async function flushSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
   if (!diagram) return;
+  await doSave();
+}
+
+async function doSave() {
+  if (!diagram) return;
+  const id = diagram.id;
   try {
-    await api("PUT", `/api/diagrams/${diagram.id}`, {
+    const { etag } = await api("PUT", `/api/diagrams/${id}`, {
       name: diagram.name,
       nodes: diagram.nodes,
       edges: diagram.edges,
       viewport: diagram.viewport,
-    });
+    }, { ifMatch: currentEtag, wantEtag: true });
+    if (diagram && diagram.id === id) currentEtag = etag;
+    setStatus("saved");
   } catch (e) {
-    console.error("flushSave failed", e);
+    if (e.status === 412) {
+      await handleConflict();
+    } else {
+      setStatus("save failed");
+      console.error(e);
+    }
+  }
+}
+
+// Triggered on HTTP 412: someone else (another tab or session) saved this
+// diagram since we loaded it. Offer to reload, dropping the unsaved local
+// changes — we don't have a UI for three-way merge yet.
+async function handleConflict() {
+  const reload = confirm(
+    "This diagram was changed elsewhere.\n\n" +
+    "OK = discard local changes and reload latest\n" +
+    "Cancel = keep editing (next save may overwrite the other change)"
+  );
+  if (reload) {
+    const id = diagram && diagram.id;
+    if (id) await loadDiagram(id, { push: false });
+  } else {
+    // Force-overwrite mode: drop the etag so the next save bypasses the check.
+    currentEtag = null;
+    setStatus("conflict — saved on next change will overwrite");
   }
 }
 
@@ -173,7 +216,9 @@ async function loadDiagram(id, opts = {}) {
   future = [];
   if (editing) { editing = null; editorEl.hidden = true; }
 
-  diagram = await api("GET", `/api/diagrams/${id}`);
+  const { data: d, etag } = await api("GET", `/api/diagrams/${id}`, null, { wantEtag: true });
+  diagram = d;
+  currentEtag = etag;
   diagramNameEl.textContent = diagram.name;
   document.title = `${diagram.name} — diagramer`;
   for (const li of sidebarListEl.children) {
@@ -236,19 +281,9 @@ function redo() {
 
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try {
-      await api("PUT", `/api/diagrams/${diagram.id}`, {
-        name: diagram.name,
-        nodes: diagram.nodes,
-        edges: diagram.edges,
-        viewport: diagram.viewport,
-      });
-      setStatus("saved");
-    } catch (e) {
-      setStatus("save failed");
-      console.error(e);
-    }
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    doSave();
   }, 200);
 }
 
@@ -975,11 +1010,19 @@ function startRename(li, nameEl) {
     input.replaceWith(replacement);
     if (commit && newName && newName !== original) {
       try {
-        await api("PATCH", `/api/diagrams/${id}`, { name: newName });
+        const { etag } = await api(
+          "PATCH",
+          `/api/diagrams/${id}`,
+          { name: newName },
+          { wantEtag: true }
+        );
         if (diagram && diagram.id === id) {
           diagram.name = newName;
           diagramNameEl.textContent = newName;
           document.title = `${newName} — diagramer`;
+          // Rename bumps UpdatedAt server-side; refresh our cached ETag so
+          // the next content save doesn't 412.
+          currentEtag = etag;
         }
       } catch (e) {
         setStatus("rename failed");

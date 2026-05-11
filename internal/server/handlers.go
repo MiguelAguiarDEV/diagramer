@@ -61,6 +61,7 @@ func (h *apiHandlers) create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	w.Header().Set("ETag", diagrams.ETag(d))
 	writeJSON(w, http.StatusCreated, d)
 }
 
@@ -71,6 +72,7 @@ func (h *apiHandlers) get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	w.Header().Set("ETag", diagrams.ETag(d))
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -99,11 +101,12 @@ func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 		Edges:    req.Edges,
 		Viewport: req.Viewport,
 	}
-	updated, err := h.svc.Update(r.Context(), d)
+	updated, err := h.svc.Update(r.Context(), d, r.Header.Get("If-Match"))
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
+	w.Header().Set("ETag", diagrams.ETag(updated))
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -117,11 +120,15 @@ func (h *apiHandlers) rename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	m, err := h.svc.Rename(r.Context(), id, body.Name)
+	d, err := h.svc.Rename(r.Context(), id, body.Name)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
+	w.Header().Set("ETag", diagrams.ETag(d))
+	// Response body remains a lightweight meta so the sidebar can refresh
+	// without re-fetching the full diagram.
+	m := diagrams.NewDiagramMeta(d)
 	writeJSON(w, http.StatusOK, m)
 }
 
@@ -147,6 +154,8 @@ func (h *apiHandlers) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, diagrams.ErrLabelTooLong),
 		errors.Is(err, diagrams.ErrEdgeRef):
 		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, diagrams.ErrConflict):
+		http.Error(w, "diagram modified elsewhere", http.StatusPreconditionFailed)
 	default:
 		h.logger.Error("internal error", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

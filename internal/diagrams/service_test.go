@@ -91,7 +91,7 @@ func TestUpdatePreservesCreatedAtAndRefreshesUpdatedAt(t *testing.T) {
 
 	time.Sleep(2 * time.Millisecond)
 	d.Nodes = []Node{{ID: "n1", Data: NodeData{Label: "hi"}}}
-	updated, err := s.Update(ctx, d)
+	updated, err := s.Update(ctx, d, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestUpdateNilSlicesNormalized(t *testing.T) {
 	d, _ := s.Create(context.Background(), "x")
 	d.Nodes = nil
 	d.Edges = nil
-	got, err := s.Update(context.Background(), d)
+	got, err := s.Update(context.Background(), d, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,12 +125,30 @@ func TestRename(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
 	d, _ := s.Create(ctx, "old")
-	m, err := s.Rename(ctx, d.ID, "  new name  ")
+	renamed, err := s.Rename(ctx, d.ID, "  new name  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Name != "new name" {
-		t.Errorf("name: %q", m.Name)
+	if renamed.Name != "new name" {
+		t.Errorf("name: %q", renamed.Name)
+	}
+}
+
+func TestUpdateETagMismatch(t *testing.T) {
+	s := NewService(newMemRepo())
+	ctx := context.Background()
+	d, _ := s.Create(ctx, "x")
+	if _, err := s.Update(ctx, d, `"999"`); !errors.Is(err, ErrConflict) {
+		t.Errorf("expected ErrConflict, got %v", err)
+	}
+}
+
+func TestUpdateETagMatch(t *testing.T) {
+	s := NewService(newMemRepo())
+	ctx := context.Background()
+	d, _ := s.Create(ctx, "x")
+	if _, err := s.Update(ctx, d, ETag(d)); err != nil {
+		t.Fatalf("expected ok, got %v", err)
 	}
 }
 
@@ -149,7 +167,7 @@ func TestUpdateRejectsBadEdgeRef(t *testing.T) {
 	d, _ := s.Create(ctx, "x")
 	d.Nodes = []Node{{ID: "n1"}}
 	d.Edges = []Edge{{ID: "e1", Source: "n1", Target: "ghost"}}
-	if _, err := s.Update(ctx, d); !errors.Is(err, ErrEdgeRef) {
+	if _, err := s.Update(ctx, d, ""); !errors.Is(err, ErrEdgeRef) {
 		t.Errorf("expected ErrEdgeRef, got %v", err)
 	}
 }
@@ -163,7 +181,7 @@ func TestUpdateRejectsLongLabel(t *testing.T) {
 		long[i] = 'a'
 	}
 	d.Nodes = []Node{{ID: "n1", Data: NodeData{Label: string(long)}}}
-	if _, err := s.Update(ctx, d); !errors.Is(err, ErrLabelTooLong) {
+	if _, err := s.Update(ctx, d, ""); !errors.Is(err, ErrLabelTooLong) {
 		t.Errorf("expected ErrLabelTooLong, got %v", err)
 	}
 }
@@ -176,7 +194,7 @@ func TestUpdateRejectsTooManyNodes(t *testing.T) {
 	for i := range d.Nodes {
 		d.Nodes[i] = Node{ID: "n"}
 	}
-	if _, err := s.Update(ctx, d); !errors.Is(err, ErrTooManyNodes) {
+	if _, err := s.Update(ctx, d, ""); !errors.Is(err, ErrTooManyNodes) {
 		t.Errorf("expected ErrTooManyNodes, got %v", err)
 	}
 }

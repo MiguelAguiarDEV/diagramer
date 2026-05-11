@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,7 +28,14 @@ var (
 	ErrTooManyEdges = errors.New("too many edges")
 	ErrLabelTooLong = errors.New("node label too long")
 	ErrEdgeRef      = errors.New("edge references unknown node")
+	ErrConflict     = errors.New("diagram modified elsewhere")
 )
+
+// ETag derives a strong opaque tag from the diagram's UpdatedAt nanos.
+// Clients send it back via If-Match so we can detect concurrent edits.
+func ETag(d *Diagram) string {
+	return `"` + strconv.FormatInt(d.UpdatedAt.UnixNano(), 10) + `"`
+}
 
 // Repository is the storage abstraction the Service depends on.
 // Defined here (consumer side) per Go convention so storage stays decoupled.
@@ -43,8 +51,12 @@ type Service interface {
 	List(ctx context.Context) ([]DiagramMeta, error)
 	Get(ctx context.Context, id string) (*Diagram, error)
 	Create(ctx context.Context, name string) (*Diagram, error)
-	Update(ctx context.Context, d *Diagram) (*Diagram, error)
-	Rename(ctx context.Context, id, newName string) (*DiagramMeta, error)
+	// Update writes d. When ifMatch is non-empty it must equal the current
+	// server-side ETag or ErrConflict is returned; pass "" to bypass.
+	Update(ctx context.Context, d *Diagram, ifMatch string) (*Diagram, error)
+	// Rename returns the post-rename Diagram so callers can also derive the
+	// fresh ETag without an extra round-trip.
+	Rename(ctx context.Context, id, newName string) (*Diagram, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -89,13 +101,16 @@ func (s *service) Create(ctx context.Context, name string) (*Diagram, error) {
 	return d, nil
 }
 
-func (s *service) Update(ctx context.Context, d *Diagram) (*Diagram, error) {
+func (s *service) Update(ctx context.Context, d *Diagram, ifMatch string) (*Diagram, error) {
 	if d == nil {
 		return nil, errors.New("nil diagram")
 	}
 	existing, err := s.repo.Get(ctx, d.ID)
 	if err != nil {
 		return nil, err
+	}
+	if ifMatch != "" && ifMatch != ETag(existing) {
+		return nil, ErrConflict
 	}
 	// Preserve immutable fields, accept new content.
 	d.CreatedAt = existing.CreatedAt
@@ -118,7 +133,7 @@ func (s *service) Update(ctx context.Context, d *Diagram) (*Diagram, error) {
 	return d, nil
 }
 
-func (s *service) Rename(ctx context.Context, id, newName string) (*DiagramMeta, error) {
+func (s *service) Rename(ctx context.Context, id, newName string) (*Diagram, error) {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil, ErrInvalidName
@@ -135,8 +150,7 @@ func (s *service) Rename(ctx context.Context, id, newName string) (*DiagramMeta,
 	if err := s.repo.Save(ctx, d); err != nil {
 		return nil, fmt.Errorf("save: %w", err)
 	}
-	m := NewDiagramMeta(d)
-	return &m, nil
+	return d, nil
 }
 
 func (s *service) Delete(ctx context.Context, id string) error {
