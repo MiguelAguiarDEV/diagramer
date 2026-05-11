@@ -47,6 +47,10 @@ let lasso = null;
 let editing = null; // { kind: "node" | "edge", id }
 let saveTimer = null;
 
+const HISTORY_LIMIT = 50;
+let past = [];
+let future = [];
+
 const EDGE_EDITOR_W = 140;
 const EDGE_EDITOR_H = 28;
 
@@ -163,6 +167,8 @@ async function loadDiagram(id, opts = {}) {
   dragging = null;
   pendingEdge = null;
   lasso = null;
+  past = [];
+  future = [];
   if (editing) { editing = null; editorEl.hidden = true; }
 
   diagram = await api("GET", `/api/diagrams/${id}`);
@@ -174,6 +180,55 @@ async function loadDiagram(id, opts = {}) {
   if (opts.push !== false) {
     history.pushState({ id }, "", `/d/${id}`);
   }
+  render();
+}
+
+// ---------- undo / redo ----------
+
+// Snapshot only the persistent diagram content (nodes + edges). Viewport
+// changes from pan/zoom aren't worth a history slot.
+function snapshot() {
+  return {
+    nodes: structuredClone(diagram.nodes),
+    edges: structuredClone(diagram.edges),
+  };
+}
+
+function pushHistory(snap) {
+  past.push(snap || snapshot());
+  if (past.length > HISTORY_LIMIT) past.shift();
+  future = [];
+}
+
+function applySnapshot(s) {
+  diagram.nodes = s.nodes;
+  diagram.edges = s.edges;
+}
+
+function resetTransientForHistory() {
+  selectedIds.clear();
+  selectedEdgeId = null;
+  connectSource = null;
+  pendingEdge = null;
+  dragging = null;
+  if (editing) { editing = null; editorEl.hidden = true; }
+}
+
+function undo() {
+  if (past.length === 0) return;
+  future.push(snapshot());
+  applySnapshot(past.pop());
+  resetTransientForHistory();
+  save();
+  render();
+}
+
+function redo() {
+  if (future.length === 0) return;
+  past.push(snapshot());
+  applySnapshot(future.pop());
+  resetTransientForHistory();
+  save();
   render();
 }
 
@@ -374,6 +429,7 @@ function clientToModel(evt) {
 function addBoxAt(modelX, modelY) {
   const label = prompt("Box text:");
   if (label === null) return;
+  pushHistory();
   diagram.nodes.push({
     id: uid(),
     position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
@@ -402,11 +458,11 @@ connectBtn.addEventListener("click", () => {
 deleteBtn.addEventListener("click", deleteSelected);
 
 function deleteSelected() {
-  let changed = false;
+  if (selectedEdgeId === null && selectedIds.size === 0) return;
+  pushHistory();
   if (selectedEdgeId) {
     diagram.edges = diagram.edges.filter((e) => e.id !== selectedEdgeId);
     selectedEdgeId = null;
-    changed = true;
   }
   if (selectedIds.size > 0) {
     const ids = selectedIds;
@@ -415,12 +471,9 @@ function deleteSelected() {
       (e) => !ids.has(e.source) && !ids.has(e.target)
     );
     selectedIds = new Set();
-    changed = true;
   }
-  if (changed) {
-    save();
-    render();
-  }
+  save();
+  render();
 }
 
 function positionEditor() {
@@ -488,18 +541,27 @@ function startEdit(kind, id) {
 function commitEdit(value) {
   if (!editing) return;
   const v = (value || "").trim();
+  let changed = false;
   if (editing.kind === "node") {
     const node = diagram.nodes.find((n) => n.id === editing.id);
     // Empty input is ignored for nodes (we don't want labelless boxes).
-    if (node && v) node.data.label = v;
+    if (node && v && node.data.label !== v) {
+      pushHistory();
+      node.data.label = v;
+      changed = true;
+    }
   } else if (editing.kind === "edge") {
     const edge = diagram.edges.find((e) => e.id === editing.id);
     // Empty input clears the edge label; the edge stays.
-    if (edge) edge.label = v;
+    if (edge && (edge.label || "") !== v) {
+      pushHistory();
+      edge.label = v;
+      changed = true;
+    }
   }
   editing = null;
   editorEl.hidden = true;
-  save();
+  if (changed) save();
   render();
 }
 
@@ -596,6 +658,7 @@ canvas.addEventListener("mousedown", (evt) => {
       if (edgeExists(connectSource, id)) {
         setStatus("already connected");
       } else {
+        pushHistory();
         diagram.edges.push({ id: uid(), source: connectSource, target: id });
         save();
       }
@@ -630,7 +693,9 @@ canvas.addEventListener("mousedown", (evt) => {
       dy: p.y - node.position.y,
     });
   }
-  dragging = { offsets, moved: false };
+  // Capture pre-drag snapshot for undo; only commit it to history if the
+  // pointer actually moves (a stray click shouldn't pollute the history).
+  dragging = { offsets, moved: false, snapshot: snapshot() };
   render();
 });
 
@@ -678,6 +743,7 @@ window.addEventListener("mouseup", (evt) => {
         if (edgeExists(pendingEdge.sourceId, targetId)) {
           setStatus("already connected");
         } else {
+          pushHistory();
           diagram.edges.push({
             id: uid(),
             source: pendingEdge.sourceId,
@@ -708,7 +774,10 @@ window.addEventListener("mouseup", (evt) => {
     return;
   }
   if (!dragging) return;
-  if (dragging.moved) save();
+  if (dragging.moved) {
+    pushHistory(dragging.snapshot);
+    save();
+  }
   dragging = null;
 });
 
@@ -761,6 +830,19 @@ window.addEventListener("keydown", (evt) => {
   // pinch (synthesised as ctrlKey=true) does not trigger zoom.
   if (evt.key === "Control" || evt.key === "Meta") {
     ctrlDown = true;
+  }
+
+  const mod = evt.ctrlKey || evt.metaKey;
+  const key = evt.key.toLowerCase();
+  if (mod && key === "z" && !evt.shiftKey) {
+    evt.preventDefault();
+    undo();
+    return;
+  }
+  if (mod && (key === "y" || (key === "z" && evt.shiftKey))) {
+    evt.preventDefault();
+    redo();
+    return;
   }
 
   if (evt.key === "Delete" || evt.key === "Backspace") {
@@ -959,6 +1041,7 @@ function alignSelected(axis, mode) {
     .map((id) => diagram.nodes.find((n) => n.id === id))
     .filter(Boolean);
   if (nodes.length < 2) return;
+  pushHistory();
 
   if (axis === "x") {
     const lefts = nodes.map((n) => n.position.x);
