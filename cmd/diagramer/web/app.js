@@ -37,6 +37,7 @@ let connectSource = null;
 let dragging = null;
 let panning = null;
 let spaceDown = false;
+let ctrlDown = false;
 let pendingEdge = null;
 let editing = null;
 let saveTimer = null;
@@ -477,9 +478,10 @@ window.addEventListener("mouseup", (evt) => {
 canvas.addEventListener("wheel", (evt) => {
   evt.preventDefault();
 
-  // Pinch on trackpads and Ctrl+wheel on desktop arrive as wheel events with
-  // ctrlKey=true. Plain two-finger scroll has ctrlKey=false → treat as pan.
-  if (!evt.ctrlKey) {
+  // Zoom only when the user really pressed Ctrl/Cmd (tracked via keydown).
+  // The trackpad pinch gesture also arrives as a wheel with ctrlKey=true
+  // but we don't want that — only explicit Ctrl/Cmd + wheel zooms.
+  if (!ctrlDown) {
     diagram.viewport.x -= evt.deltaX;
     diagram.viewport.y -= evt.deltaY;
     applyViewport();
@@ -518,6 +520,12 @@ window.addEventListener("keydown", (evt) => {
     return;
   }
 
+  // Track physical Ctrl/Cmd separately from evt.ctrlKey on wheel so trackpad
+  // pinch (synthesised as ctrlKey=true) does not trigger zoom.
+  if (evt.key === "Control" || evt.key === "Meta") {
+    ctrlDown = true;
+  }
+
   if (evt.key === "Delete" || evt.key === "Backspace") {
     if (selectedId || selectedEdgeId) {
       evt.preventDefault();
@@ -548,15 +556,19 @@ window.addEventListener("keyup", (evt) => {
     spaceDown = false;
     canvas.classList.remove("space-pan");
   }
+  if (evt.key === "Control" || evt.key === "Meta") {
+    ctrlDown = false;
+  }
 });
 
-// If the window loses focus mid-press (e.g. Alt-tab), forget Space so the
-// cursor doesn't get stuck in grab mode on return.
+// If the window loses focus mid-press (e.g. Alt-tab), forget modifier state
+// so the cursor doesn't get stuck and zoom doesn't fire on next wheel.
 window.addEventListener("blur", () => {
   if (spaceDown) {
     spaceDown = false;
     canvas.classList.remove("space-pan");
   }
+  ctrlDown = false;
 });
 
 init().catch((e) => {
