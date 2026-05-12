@@ -214,6 +214,14 @@ main {
 .edge-group:hover .edge { stroke: #93c5fd; }
 .edge-group.selected .edge { stroke: #2563eb; stroke-width: 2.5; }
 
+.edge-handle {
+  fill: #fff;
+  stroke: #2563eb;
+  stroke-width: 2;
+  cursor: grab;
+}
+.edge-handle:active { cursor: grabbing; }
+
 .edge-label {
   fill: #e5e7eb;
   font: 12px system-ui, sans-serif;

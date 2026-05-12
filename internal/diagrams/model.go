@@ -31,10 +31,19 @@ type NodeData struct {
 }
 
 type Edge struct {
-	ID     string `json:"id"`
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Label  string `json:"label,omitempty"`
+	ID        string     `json:"id"`
+	Source    string     `json:"source"`
+	Target    string     `json:"target"`
+	Label     string     `json:"label,omitempty"`
+	Curvature *Curvature `json:"curvature,omitempty"`
+}
+
+// Curvature is an offset (in model coords) from the straight midpoint
+// between the two edge anchors. When set the edge is drawn as a quadratic
+// bezier passing through midpoint + (Ox, Oy) at t=0.5.
+type Curvature struct {
+	Ox float64 `json:"ox"`
+	Oy float64 `json:"oy"`
 }
 
 type Viewport struct {

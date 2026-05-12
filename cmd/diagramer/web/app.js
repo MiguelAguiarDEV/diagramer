@@ -230,6 +230,7 @@ let ctrlDown = false;
 let pendingEdge = null;
 let lasso = null;
 let editing = null; // { kind: "node" | "edge", id }
+let edgeDrag = null; // { edgeId, snapshot }
 let saveTimer = null;
 
 const HISTORY_LIMIT = 50;
@@ -517,192 +518,39 @@ function controlPoint(anchor, offset) {
   }
 }
 
-// ---------- edge routing (A* with bezier smoothing) ----------
+// ---------- edges ----------
 
-const ROUTE_GRID = 12;        // px per cell
-const ROUTE_HALO = 1;         // cells of buffer around each obstacle
-const ROUTE_STUB = 60;        // px the path extends perpendicular before A* starts
-const ROUTE_CORNER_R = 12;    // px of rounding at each corner
-
-function sideOffset(side, d) {
-  switch (side) {
-    case "right":  return { dx: d,  dy: 0  };
-    case "left":   return { dx: -d, dy: 0  };
-    case "top":    return { dx: 0,  dy: -d };
-    case "bottom": return { dx: 0,  dy: d  };
-    default:       return { dx: 0,  dy: 0  };
-  }
+function edgeMidpoint(pa, pb) {
+  return { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
 }
 
-// A* on a 4-connected grid. obstacles is a Set of "x,y" strings.
-// Penalises turns so the path prefers straight segments.
-function aStar(start, goal, obstacles, wCells, hCells) {
-  const key = (x, y) => x + "," + y;
-  const startK = key(start.x, start.y);
-  const goalK = key(goal.x, goal.y);
-  if (startK === goalK) return [start];
-
-  const heuristic = (x, y) => Math.abs(x - goal.x) + Math.abs(y - goal.y);
-  const open = [[heuristic(start.x, start.y), start.x, start.y]];
-  const inOpen = new Set([startK]);
-  const cameFrom = new Map();
-  const gScore = new Map([[startK, 0]]);
-  const closed = new Set();
-
-  while (open.length) {
-    // Pop lowest f. Linear scan — fine for the sizes we handle.
-    let bestIdx = 0;
-    for (let i = 1; i < open.length; i++) {
-      if (open[i][0] < open[bestIdx][0]) bestIdx = i;
-    }
-    const [, cx, cy] = open.splice(bestIdx, 1)[0];
-    const ck = key(cx, cy);
-    inOpen.delete(ck);
-    if (closed.has(ck)) continue;
-    closed.add(ck);
-
-    if (cx === goal.x && cy === goal.y) {
-      const path = [];
-      let cur = ck;
-      while (cameFrom.has(cur)) {
-        const [x, y] = cur.split(",").map(Number);
-        path.unshift({ x, y });
-        cur = cameFrom.get(cur);
-      }
-      path.unshift(start);
-      return path;
-    }
-
-    const prevK = cameFrom.get(ck);
-    let prevDx = 0, prevDy = 0;
-    if (prevK) {
-      const [px, py] = prevK.split(",").map(Number);
-      prevDx = cx - px;
-      prevDy = cy - py;
-    }
-
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    for (const [dx, dy] of dirs) {
-      const nx = cx + dx, ny = cy + dy;
-      if (nx < 0 || ny < 0 || nx >= wCells || ny >= hCells) continue;
-      const nk = key(nx, ny);
-      if (obstacles.has(nk) || closed.has(nk)) continue;
-      const turn = (prevK && (dx !== prevDx || dy !== prevDy)) ? 2 : 0;
-      const tentative = gScore.get(ck) + 1 + turn;
-      if (!gScore.has(nk) || tentative < gScore.get(nk)) {
-        cameFrom.set(nk, ck);
-        gScore.set(nk, tentative);
-        const f = tentative + heuristic(nx, ny);
-        if (!inOpen.has(nk)) {
-          open.push([f, nx, ny]);
-          inOpen.add(nk);
-        }
-      }
-    }
+// World position of the draggable curvature handle for the given edge.
+// Without curvature it lives on the straight anchor midpoint; with curvature
+// it's offset by (ox, oy).
+function edgeHandlePos(edge, pa, pb) {
+  const mid = edgeMidpoint(pa, pb);
+  if (edge.curvature) {
+    return { x: mid.x + edge.curvature.ox, y: mid.y + edge.curvature.oy };
   }
-  return null;
+  return mid;
 }
 
-// Compute a routed path for one edge: A* with anchor extension + smoothing.
-// Returns an SVG d string ready for <path>.
-function routeEdge(edge) {
-  const src = diagram.nodes.find((n) => n.id === edge.source);
-  const tgt = diagram.nodes.find((n) => n.id === edge.target);
-  if (!src || !tgt) return null;
-  const pa = sideAnchor(src, center(tgt));
-  const pb = sideAnchor(tgt, center(src));
-
-  // Extend each anchor outward so the path always leaves/arrives perpendicular.
-  const oa = sideOffset(pa.side, ROUTE_STUB);
-  const ob = sideOffset(pb.side, ROUTE_STUB);
-  const paExt = { x: pa.x + oa.dx, y: pa.y + oa.dy };
-  const pbExt = { x: pb.x + ob.dx, y: pb.y + ob.dy };
-
-  // Local grid bbox around the two anchors with generous margin.
-  const margin = 240;
-  const minX = Math.min(paExt.x, pbExt.x) - margin;
-  const minY = Math.min(paExt.y, pbExt.y) - margin;
-  const maxX = Math.max(paExt.x, pbExt.x) + margin;
-  const maxY = Math.max(paExt.y, pbExt.y) + margin;
-  const originX = Math.floor(minX / ROUTE_GRID) * ROUTE_GRID;
-  const originY = Math.floor(minY / ROUTE_GRID) * ROUTE_GRID;
-  const wCells = Math.ceil((maxX - originX) / ROUTE_GRID);
-  const hCells = Math.ceil((maxY - originY) / ROUTE_GRID);
-
-  // Obstacles: every node *except* source/target, inflated by ROUTE_HALO.
-  const obstacles = new Set();
-  for (const n of diagram.nodes) {
-    if (n.id === src.id || n.id === tgt.id) continue;
-    const { w, h } = nodeSize(n);
-    if (n.position.x + w < minX || n.position.x > maxX) continue;
-    if (n.position.y + h < minY || n.position.y > maxY) continue;
-    const x0 = Math.floor((n.position.x - originX) / ROUTE_GRID) - ROUTE_HALO;
-    const y0 = Math.floor((n.position.y - originY) / ROUTE_GRID) - ROUTE_HALO;
-    const x1 = Math.ceil((n.position.x + w - originX) / ROUTE_GRID) + ROUTE_HALO;
-    const y1 = Math.ceil((n.position.y + h - originY) / ROUTE_GRID) + ROUTE_HALO;
-    for (let x = Math.max(0, x0); x < Math.min(wCells, x1); x++) {
-      for (let y = Math.max(0, y0); y < Math.min(hCells, y1); y++) {
-        obstacles.add(x + "," + y);
-      }
-    }
+// SVG path d-string for one edge. With curvature: quadratic bezier with the
+// single control point chosen so the curve passes exactly through the handle
+// at t=0.5. Without curvature: the original cubic with control points pushed
+// perpendicular to each anchor's side (the look we had before A* routing).
+function edgePath(edge, pa, pb) {
+  if (edge.curvature) {
+    const mid = edgeMidpoint(pa, pb);
+    const hx = mid.x + edge.curvature.ox;
+    const hy = mid.y + edge.curvature.oy;
+    // Quadratic B(t) = (1-t)²·P0 + 2(1-t)t·C + t²·P2. At t=0.5:
+    //   B(0.5) = (P0 + 2C + P2) / 4 = H   →   C = 2H − (P0+P2)/2
+    const cx = 2 * hx - (pa.x + pb.x) / 2;
+    const cy = 2 * hy - (pa.y + pb.y) / 2;
+    return `M ${pa.x},${pa.y} Q ${cx},${cy} ${pb.x},${pb.y}`;
   }
-
-  const startCell = {
-    x: Math.round((paExt.x - originX) / ROUTE_GRID),
-    y: Math.round((paExt.y - originY) / ROUTE_GRID),
-  };
-  const goalCell = {
-    x: Math.round((pbExt.x - originX) / ROUTE_GRID),
-    y: Math.round((pbExt.y - originY) / ROUTE_GRID),
-  };
-  obstacles.delete(startCell.x + "," + startCell.y);
-  obstacles.delete(goalCell.x + "," + goalCell.y);
-
-  const path = aStar(startCell, goalCell, obstacles, wCells, hCells);
-  if (!path) return bezierPath(pa, pb); // graceful fallback
-
-  // Cells → model coords.
-  const coords = path.map((c) => ({
-    x: originX + c.x * ROUTE_GRID,
-    y: originY + c.y * ROUTE_GRID,
-  }));
-  // Pin start/end of the routed strip to the exact extended anchor coords,
-  // then prepend / append the original anchors so the path attaches flush
-  // against the rect side.
-  coords[0] = { x: paExt.x, y: paExt.y };
-  coords[coords.length - 1] = { x: pbExt.x, y: pbExt.y };
-  coords.unshift({ x: pa.x, y: pa.y });
-  coords.push({ x: pb.x, y: pb.y });
-
-  return smoothedPathD(simplifyCollinear(coords));
-}
-
-function simplifyCollinear(points) {
-  if (points.length <= 2) return points;
-  const out = [points[0]];
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = out[out.length - 1];
-    const cur = points[i];
-    const next = points[i + 1];
-    const cross =
-      (cur.x - prev.x) * (next.y - cur.y) -
-      (cur.y - prev.y) * (next.x - cur.x);
-    if (Math.abs(cross) > 0.5) out.push(cur);
-  }
-  out.push(points[points.length - 1]);
-  return out;
-}
-
-// Builds an SVG path that walks straight from waypoint to waypoint.
-// (Rounded corners caused glitches when consecutive turns were too close
-// for the corner radius — orthogonal segments are far more predictable.)
-function smoothedPathD(pts) {
-  if (pts.length === 0) return "";
-  let d = `M ${pts[0].x},${pts[0].y}`;
-  for (let i = 1; i < pts.length; i++) {
-    d += ` L ${pts[i].x},${pts[i].y}`;
-  }
-  return d;
+  return bezierPath(pa, pb);
 }
 
 function render() {
@@ -713,7 +561,9 @@ function render() {
     const a = diagram.nodes.find((n) => n.id === e.source);
     const b = diagram.nodes.find((n) => n.id === e.target);
     if (!a || !b) continue;
-    const d = routeEdge(e) || bezierPath(sideAnchor(a, center(b)), sideAnchor(b, center(a)));
+    const pa = sideAnchor(a, center(b));
+    const pb = sideAnchor(b, center(a));
+    const d = edgePath(e, pa, pb);
     const isSel = e.id === selectedEdgeId;
     const eg = svg("g", {
       class: "edge-group" + (isSel ? " selected" : ""),
@@ -726,14 +576,20 @@ function render() {
       "marker-end": isSel ? "url(#arrow-selected)" : "url(#arrow)",
       d,
     }));
-    // Edge label centred on the (anchor) midpoint with a small background for
-    // legibility. We use the straight anchor midpoint rather than the routed
-    // path midpoint to keep label placement predictable as nodes move.
+    if (isSel) {
+      const h = edgeHandlePos(e, pa, pb);
+      eg.appendChild(svg("circle", {
+        class: "edge-handle",
+        "data-id": e.id,
+        cx: h.x, cy: h.y, r: 6,
+      }));
+    }
+    // Edge label sits on the handle position (midpoint by default, curvature
+    // offset when the user has dragged the handle).
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
-      const pa = sideAnchor(a, center(b));
-      const pb = sideAnchor(b, center(a));
-      const midX = (pa.x + pb.x) / 2;
-      const midY = (pa.y + pb.y) / 2;
+      const h = edgeHandlePos(e, pa, pb);
+      const midX = h.x;
+      const midY = h.y;
       const tw = _measureCtx.measureText(e.label).width + 10;
       const th = 16;
       eg.appendChild(svg("rect", {
@@ -972,7 +828,7 @@ function positionEditor() {
     return;
   }
 
-  // Edge: position over the midpoint of the segment in screen coords.
+  // Edge: position over the handle (or the anchor midpoint when straight).
   const edge = diagram.edges.find((e) => e.id === editing.id);
   if (!edge) return;
   const a = diagram.nodes.find((n) => n.id === edge.source);
@@ -980,8 +836,9 @@ function positionEditor() {
   if (!a || !b) return;
   const pa = sideAnchor(a, center(b));
   const pb = sideAnchor(b, center(a));
-  const midX = (pa.x + pb.x) / 2;
-  const midY = (pa.y + pb.y) / 2;
+  const handle = edgeHandlePos(edge, pa, pb);
+  const midX = handle.x;
+  const midY = handle.y;
   editorEl.style.left =
     (canvasRect.left + (midX - EDGE_EDITOR_W / 2) * zoom + vx) + "px";
   editorEl.style.top =
@@ -1084,6 +941,15 @@ canvas.addEventListener("mousedown", (evt) => {
     evt.stopPropagation();
     pendingEdge = { sourceId: handleEl.dataset.id, cursor: clientToModel(evt) };
     syncPendingEdge();
+    return;
+  }
+
+  // Mousedown on the curvature handle of a selected edge starts a drag that
+  // moves its single control point.
+  const edgeHandleEl = evt.target.closest(".edge-handle");
+  if (edgeHandleEl) {
+    evt.stopPropagation();
+    edgeDrag = { edgeId: edgeHandleEl.dataset.id, snapshot: snapshot() };
     return;
   }
 
@@ -1195,6 +1061,21 @@ window.addEventListener("mousemove", (evt) => {
     syncLasso();
     return;
   }
+  if (edgeDrag) {
+    const edge = diagram.edges.find((e) => e.id === edgeDrag.edgeId);
+    if (!edge) return;
+    const a = diagram.nodes.find((n) => n.id === edge.source);
+    const b = diagram.nodes.find((n) => n.id === edge.target);
+    if (!a || !b) return;
+    const pa = sideAnchor(a, center(b));
+    const pb = sideAnchor(b, center(a));
+    const mid = edgeMidpoint(pa, pb);
+    const p = clientToModel(evt);
+    edge.curvature = { ox: p.x - mid.x, oy: p.y - mid.y };
+    edgeDrag.moved = true;
+    render();
+    return;
+  }
   if (!dragging) return;
   const p = clientToModel(evt);
   for (const [sid, off] of dragging.offsets) {
@@ -1234,6 +1115,14 @@ window.addEventListener("mouseup", (evt) => {
     }
     pendingEdge = null;
     render();
+    return;
+  }
+  if (edgeDrag) {
+    if (edgeDrag.moved) {
+      pushHistory(edgeDrag.snapshot);
+      save();
+    }
+    edgeDrag = null;
     return;
   }
   if (lasso) {
@@ -1689,11 +1578,23 @@ function changeNodeKind(id, kind) {
 }
 
 function singleEdgeMenuItems(id) {
-  return [
-    { label: "Edit label", action: () => startEdit("edge", id) },
-    { separator: true },
-    { label: "Delete", action: () => deleteSelected() },
-  ];
+  const edge = diagram.edges.find((e) => e.id === id);
+  const items = [{ label: "Edit label", action: () => startEdit("edge", id) }];
+  if (edge && edge.curvature) {
+    items.push({ label: "Reset curvature", action: () => resetEdgeCurvature(id) });
+  }
+  items.push({ separator: true });
+  items.push({ label: "Delete", action: () => deleteSelected() });
+  return items;
+}
+
+function resetEdgeCurvature(id) {
+  const edge = diagram.edges.find((e) => e.id === id);
+  if (!edge || !edge.curvature) return;
+  pushHistory();
+  delete edge.curvature;
+  save();
+  render();
 }
 
 function multiNodesMenuItems() {
