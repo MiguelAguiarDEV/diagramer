@@ -19,11 +19,20 @@ function iconWidth(kind) {
 // square bbox; equilateral triangles use side × side·√3/2. All grow with the
 // label so the text always fits.
 function nodeSize(node) {
-  const tw = _measureCtx.measureText(node.data.label || "").width;
+  const label = node.data.label || "";
+  const tw = label ? _measureCtx.measureText(label).width : 0;
+  const iw = iconWidth(node.kind);
+  const shape = nodeShape(node);
+
+  // Icon-only nodes (stencil with no label) collapse to a tight square so the
+  // icon sits centred instead of pinned to the left of an empty rectangle.
+  if (label === "" && iw > 0) {
+    return { w: NODE_H, h: NODE_H };
+  }
+
   // Canvas measureText doesn't exactly match SVG text rendering, so add a
   // small safety buffer (8 px) on top of the symmetric horizontal padding.
-  const innerW = tw + iconWidth(node.kind) + NODE_PAD_X * 2 + 8;
-  const shape = nodeShape(node);
+  const innerW = tw + iw + NODE_PAD_X * 2 + 8;
   let w, h;
   switch (shape) {
     case "circle":
@@ -563,9 +572,11 @@ function render() {
     const iw = iconWidth(n.kind);
     drawShape(g, nodeShape(n), w, h);
     if (iw > 0) {
+      const hasLabel = (n.data.label || "") !== "";
+      const iconX = hasLabel ? (NODE_PAD_X - 2) : (w - ICON_SIZE) / 2;
       const iconG = svg("g", {
         class: "node-icon",
-        transform: `translate(${NODE_PAD_X - 2},${(h - ICON_SIZE) / 2})`,
+        transform: `translate(${iconX},${(h - ICON_SIZE) / 2})`,
       });
       KINDS[n.kind].icon(iconG);
       g.appendChild(iconG);
