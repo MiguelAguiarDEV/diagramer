@@ -593,9 +593,15 @@ function render() {
     handle.appendChild(ht);
     g.appendChild(handle);
 
-    // Centre the label in the area to the right of the icon (if any).
+    // Centre the label in the area to the right of the icon (if any). For
+    // triangles the visual centroid is at h/3 or 2h/3, not h/2, so labels
+    // there sit where the eye expects them.
     const textCx = iw > 0 ? (NODE_PAD_X + iw + w) / 2 : w / 2;
-    const t = svg("text", { x: textCx, y: h / 2 + 4, "text-anchor": "middle" });
+    const shape = nodeShape(n);
+    let textCy = h / 2;
+    if (shape === "tri-up")        textCy = h * 2 / 3;
+    else if (shape === "tri-down") textCy = h / 3;
+    const t = svg("text", { x: textCx, y: textCy + 4, "text-anchor": "middle" });
     t.textContent = n.data.label || "";
     g.appendChild(t);
     nodesLayer.appendChild(g);
