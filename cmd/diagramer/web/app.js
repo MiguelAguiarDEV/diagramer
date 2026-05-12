@@ -14,12 +14,53 @@ function iconWidth(kind) {
   return k && k.icon ? ICON_SIZE + ICON_GAP : 0;
 }
 
-function nodeWidth(node) {
-  const label = node.data.label || "";
-  // Canvas measureText doesn't exactly match the SVG text render so we add a
+// nodeSize returns the bbox the node occupies. Most shapes keep the classic
+// (variable width, fixed 44 height); symmetric shapes (circle, rhombus) use a
+// square bbox; equilateral triangles use side × side·√3/2. All grow with the
+// label so the text always fits.
+function nodeSize(node) {
+  const tw = _measureCtx.measureText(node.data.label || "").width;
+  // Canvas measureText doesn't exactly match SVG text rendering, so add a
   // small safety buffer (8 px) on top of the symmetric horizontal padding.
-  const w = _measureCtx.measureText(label).width + NODE_PAD_X * 2 + iconWidth(node.kind) + 8;
-  return Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, Math.ceil(w)));
+  const innerW = tw + iconWidth(node.kind) + NODE_PAD_X * 2 + 8;
+  const shape = nodeShape(node);
+  let w, h;
+  switch (shape) {
+    case "circle":
+    case "rhombus": {
+      // Square bbox; +16 px so the label doesn't kiss the curve / diagonals.
+      const d = Math.min(NODE_MAX_W, Math.max(innerW + 16, NODE_H + 8));
+      w = d; h = d;
+      break;
+    }
+    case "tri-up":
+    case "tri-down": {
+      // Equilateral: at the vertical midpoint the triangle is s/2 wide (for
+      // tri-up; symmetric for tri-down). Pick s so that mid-width covers the
+      // inner content with a small margin.
+      const SQRT3_2 = Math.sqrt(3) / 2;
+      const s = Math.min(NODE_MAX_W, Math.max(innerW * 1.6 + 8, NODE_H * 2));
+      w = s; h = s * SQRT3_2;
+      break;
+    }
+    case "ellipse": {
+      // Ellipses need extra width so the curve doesn't clip the text corners.
+      const wn = Math.min(NODE_MAX_W, Math.max(innerW + 24, NODE_MIN_W));
+      w = wn; h = NODE_H;
+      break;
+    }
+    case "rect":
+    default: {
+      const wn = Math.min(NODE_MAX_W, Math.max(innerW, NODE_MIN_W));
+      w = wn; h = NODE_H;
+      break;
+    }
+  }
+  return { w: Math.ceil(w), h: Math.ceil(h) };
+}
+
+function nodeWidth(node) {
+  return nodeSize(node).w;
 }
 
 // ---------- node kinds ----------
@@ -419,7 +460,8 @@ function save() {
 }
 
 function center(node) {
-  return { x: node.position.x + nodeWidth(node) / 2, y: node.position.y + NODE_H / 2 };
+  const { w, h } = nodeSize(node);
+  return { x: node.position.x + w / 2, y: node.position.y + h / 2 };
 }
 
 // Returns the midpoint of the node's side that faces `target` (a {x,y} point)
@@ -428,17 +470,17 @@ function center(node) {
 // cleanly. The `side` is what the bezier control points use to decide
 // whether to push the curve out horizontally or vertically.
 function sideAnchor(node, target) {
-  const w = nodeWidth(node);
-  const c = { x: node.position.x + w / 2, y: node.position.y + NODE_H / 2 };
+  const { w, h } = nodeSize(node);
+  const c = { x: node.position.x + w / 2, y: node.position.y + h / 2 };
   const dx = target.x - c.x;
   const dy = target.y - c.y;
-  if (Math.abs(dx) * NODE_H >= Math.abs(dy) * w) {
+  if (Math.abs(dx) * h >= Math.abs(dy) * w) {
     return dx >= 0
       ? { x: node.position.x + w, y: c.y, side: "right" }
       : { x: node.position.x, y: c.y, side: "left" };
   }
   return dy >= 0
-    ? { x: c.x, y: node.position.y + NODE_H, side: "bottom" }
+    ? { x: c.x, y: node.position.y + h, side: "bottom" }
     : { x: c.x, y: node.position.y, side: "top" };
 }
 
@@ -517,13 +559,13 @@ function render() {
       "data-id": n.id,
       transform: `translate(${n.position.x},${n.position.y})`,
     });
-    const w = nodeWidth(n);
+    const { w, h } = nodeSize(n);
     const iw = iconWidth(n.kind);
-    drawShape(g, nodeShape(n), w, NODE_H);
+    drawShape(g, nodeShape(n), w, h);
     if (iw > 0) {
       const iconG = svg("g", {
         class: "node-icon",
-        transform: `translate(${NODE_PAD_X - 2},${(NODE_H - ICON_SIZE) / 2})`,
+        transform: `translate(${NODE_PAD_X - 2},${(h - ICON_SIZE) / 2})`,
       });
       KINDS[n.kind].icon(iconG);
       g.appendChild(iconG);
@@ -531,18 +573,18 @@ function render() {
     // n8n-style "+" handle on the right side; visible on hover/select via CSS.
     const handle = svg("g", { class: "conn-handle", "data-id": n.id });
     handle.appendChild(svg("rect", {
-      x: w + 6, y: NODE_H / 2 - 8, width: 16, height: 16, rx: 3,
+      x: w + 6, y: h / 2 - 8, width: 16, height: 16, rx: 3,
     }));
     const ht = svg("text", {
-      x: w + 14, y: NODE_H / 2 + 4, "text-anchor": "middle",
+      x: w + 14, y: h / 2 + 4, "text-anchor": "middle",
     });
     ht.textContent = "+";
     handle.appendChild(ht);
     g.appendChild(handle);
 
-    // Centre the text in the area to the right of the icon.
+    // Centre the label in the area to the right of the icon (if any).
     const textCx = iw > 0 ? (NODE_PAD_X + iw + w) / 2 : w / 2;
-    const t = svg("text", { x: textCx, y: NODE_H / 2 + 4, "text-anchor": "middle" });
+    const t = svg("text", { x: textCx, y: h / 2 + 4, "text-anchor": "middle" });
     t.textContent = n.data.label || "";
     g.appendChild(t);
     nodesLayer.appendChild(g);
@@ -638,16 +680,20 @@ function clientToModel(evt) {
 }
 
 function addBoxAt(modelX, modelY, kind) {
-  const defaultLabel = (kind && KINDS[kind]) ? KINDS[kind].label : "";
-  const label = prompt(`${defaultLabel || "Box"} text:`, defaultLabel);
+  // Stencils (kinds with an icon) pre-fill the prompt with their type name;
+  // geometric primitives leave it blank so creating shapes-only nodes is
+  // friction-free. Empty result is allowed — the node renders without text.
+  const k = kind && KINDS[kind];
+  const suggestion = (k && k.icon) ? k.label : "";
+  const label = prompt("Text (leave empty for no label):", suggestion);
   if (label === null) return;
   pushHistory();
   const node = {
     id: uid(),
     position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
-    data: { label: label.trim() || defaultLabel || "Untitled" },
+    data: { label: label.trim() },
   };
-  if (kind && kind !== "box") node.kind = kind;
+  if (kind && kind !== "rect") node.kind = kind;
   diagram.nodes.push(node);
   save();
   render();
@@ -709,11 +755,11 @@ function positionEditor() {
   if (editing.kind === "node") {
     const node = diagram.nodes.find((n) => n.id === editing.id);
     if (!node) return;
-    const w = nodeWidth(node);
+    const { w, h } = nodeSize(node);
     editorEl.style.left = (canvasRect.left + node.position.x * zoom + vx) + "px";
     editorEl.style.top = (canvasRect.top + node.position.y * zoom + vy) + "px";
     editorEl.style.width = (w * zoom) + "px";
-    editorEl.style.height = (NODE_H * zoom) + "px";
+    editorEl.style.height = (h * zoom) + "px";
     editorEl.style.fontSize = (13 * zoom) + "px";
     return;
   }
@@ -769,8 +815,8 @@ function commitEdit(value) {
   let changed = false;
   if (editing.kind === "node") {
     const node = diagram.nodes.find((n) => n.id === editing.id);
-    // Empty input is ignored for nodes (we don't want labelless boxes).
-    if (node && v && node.data.label !== v) {
+    // Empty input is allowed — node renders with no label.
+    if (node && node.data.label !== v) {
       pushHistory();
       node.data.label = v;
       changed = true;
@@ -989,7 +1035,8 @@ window.addEventListener("mouseup", (evt) => {
     if (box.w > 3 || box.h > 3) {
       const next = lasso.additive ? new Set(lasso.baseSelection) : new Set();
       for (const n of diagram.nodes) {
-        const nb = { x: n.position.x, y: n.position.y, w: nodeWidth(n), h: NODE_H };
+        const { w: nw, h: nh } = nodeSize(n);
+        const nb = { x: n.position.x, y: n.position.y, w: nw, h: nh };
         if (rectsOverlap(box, nb)) next.add(n.id);
       }
       selectedIds = next;
@@ -1285,28 +1332,29 @@ function alignSelected(axis, mode) {
 
   if (axis === "x") {
     const lefts = nodes.map((n) => n.position.x);
-    const rights = nodes.map((n) => n.position.x + nodeWidth(n));
+    const rights = nodes.map((n) => n.position.x + nodeSize(n).w);
     let target;
     if (mode === "min") target = Math.min(...lefts);
     else if (mode === "max") target = Math.max(...rights);
     else target = (Math.min(...lefts) + Math.max(...rights)) / 2;
     for (const n of nodes) {
-      const w = nodeWidth(n);
+      const w = nodeSize(n).w;
       if (mode === "min") n.position.x = target;
       else if (mode === "max") n.position.x = target - w;
       else n.position.x = target - w / 2;
     }
   } else {
     const tops = nodes.map((n) => n.position.y);
-    const bottoms = nodes.map((n) => n.position.y + NODE_H);
+    const bottoms = nodes.map((n) => n.position.y + nodeSize(n).h);
     let target;
     if (mode === "min") target = Math.min(...tops);
     else if (mode === "max") target = Math.max(...bottoms);
     else target = (Math.min(...tops) + Math.max(...bottoms)) / 2;
     for (const n of nodes) {
+      const h = nodeSize(n).h;
       if (mode === "min") n.position.y = target;
-      else if (mode === "max") n.position.y = target - NODE_H;
-      else n.position.y = target - NODE_H / 2;
+      else if (mode === "max") n.position.y = target - h;
+      else n.position.y = target - h / 2;
     }
   }
   save();
@@ -1525,11 +1573,11 @@ function nodesBBox() {
   }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of diagram.nodes) {
-    const w = nodeWidth(n);
+    const { w, h } = nodeSize(n);
     if (n.position.x < minX) minX = n.position.x;
     if (n.position.y < minY) minY = n.position.y;
     if (n.position.x + w > maxX) maxX = n.position.x + w;
-    if (n.position.y + NODE_H > maxY) maxY = n.position.y + NODE_H;
+    if (n.position.y + h > maxY) maxY = n.position.y + h;
   }
   const PAD = 30;
   return {
