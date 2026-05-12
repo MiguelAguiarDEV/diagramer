@@ -86,15 +86,65 @@ function drawCloud(g) {
 }
 
 const KINDS = {
-  box:      { label: "Box",      icon: null },
-  database: { label: "Database", icon: drawDatabase },
-  backend:  { label: "Backend",  icon: drawBackend  },
-  frontend: { label: "Frontend", icon: drawFrontend },
-  queue:    { label: "Queue",    icon: drawQueue    },
-  cache:    { label: "Cache",    icon: drawCache    },
-  user:     { label: "User",     icon: drawUser     },
-  cloud:    { label: "Cloud",    icon: drawCloud    },
+  // Geometric primitives — no icon, the outline shape itself carries meaning.
+  rect:       { label: "Rectangle",  shape: "rect" },
+  circle:     { label: "Circle",     shape: "circle" },
+  ellipse:    { label: "Ellipse",    shape: "ellipse" },
+  rhombus:    { label: "Rhombus",    shape: "rhombus" },
+  "tri-up":   { label: "Triangle ▲", shape: "tri-up" },
+  "tri-down": { label: "Triangle ▼", shape: "tri-down" },
+  // Stencils — rectangle outline + icon, all sharing the same bbox so anchors
+  // and edges work uniformly.
+  database: { label: "Database", shape: "rect", icon: drawDatabase },
+  backend:  { label: "Backend",  shape: "rect", icon: drawBackend  },
+  frontend: { label: "Frontend", shape: "rect", icon: drawFrontend },
+  queue:    { label: "Queue",    shape: "rect", icon: drawQueue    },
+  cache:    { label: "Cache",    shape: "rect", icon: drawCache    },
+  user:     { label: "User",     shape: "rect", icon: drawUser     },
+  cloud:    { label: "Cloud",    shape: "rect", icon: drawCloud    },
 };
+
+function nodeShape(node) {
+  const k = node.kind && KINDS[node.kind];
+  return (k && k.shape) ? k.shape : "rect";
+}
+
+// Draws the node outline as the appropriate SVG primitive. The bbox is always
+// (0,0)-(w,h) regardless of the actual shape, so anchors stay rectangular.
+function drawShape(g, shape, w, h) {
+  switch (shape) {
+    case "circle": {
+      const r = Math.min(w, h) / 2;
+      return svgChild(g, "ellipse", {
+        class: "node-shape", cx: w / 2, cy: h / 2, rx: r, ry: r,
+      });
+    }
+    case "ellipse":
+      return svgChild(g, "ellipse", {
+        class: "node-shape", cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2,
+      });
+    case "rhombus":
+      return svgChild(g, "polygon", {
+        class: "node-shape",
+        points: `${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`,
+      });
+    case "tri-up":
+      return svgChild(g, "polygon", {
+        class: "node-shape",
+        points: `${w / 2},0 ${w},${h} 0,${h}`,
+      });
+    case "tri-down":
+      return svgChild(g, "polygon", {
+        class: "node-shape",
+        points: `0,0 ${w},0 ${w / 2},${h}`,
+      });
+    case "rect":
+    default:
+      return svgChild(g, "rect", {
+        class: "node-shape", width: w, height: h, rx: 6, ry: 6,
+      });
+  }
+}
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
@@ -469,7 +519,7 @@ function render() {
     });
     const w = nodeWidth(n);
     const iw = iconWidth(n.kind);
-    g.appendChild(svg("rect", { width: w, height: NODE_H }));
+    drawShape(g, nodeShape(n), w, NODE_H);
     if (iw > 0) {
       const iconG = svg("g", {
         class: "node-icon",
