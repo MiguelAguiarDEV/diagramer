@@ -152,6 +152,7 @@ func (h *apiHandlers) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, diagrams.ErrTooManyNodes),
 		errors.Is(err, diagrams.ErrTooManyEdges),
 		errors.Is(err, diagrams.ErrLabelTooLong),
+		errors.Is(err, diagrams.ErrKindTooLong),
 		errors.Is(err, diagrams.ErrEdgeRef):
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, diagrams.ErrConflict):

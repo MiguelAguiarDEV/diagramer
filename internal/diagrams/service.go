@@ -18,6 +18,7 @@ var ErrInvalidName = errors.New("invalid diagram name")
 const (
 	MaxNameLen  = 200
 	MaxLabelLen = 500
+	MaxKindLen  = 32
 	MaxNodes    = 5000
 	MaxEdges    = 10000
 )
@@ -27,6 +28,7 @@ var (
 	ErrTooManyNodes = errors.New("too many nodes")
 	ErrTooManyEdges = errors.New("too many edges")
 	ErrLabelTooLong = errors.New("node label too long")
+	ErrKindTooLong  = errors.New("node kind too long")
 	ErrEdgeRef      = errors.New("edge references unknown node")
 	ErrConflict     = errors.New("diagram modified elsewhere")
 )
@@ -171,6 +173,9 @@ func validate(d *Diagram) error {
 	for i := range d.Nodes {
 		if len(d.Nodes[i].Data.Label) > MaxLabelLen {
 			return ErrLabelTooLong
+		}
+		if len(d.Nodes[i].Kind) > MaxKindLen {
+			return ErrKindTooLong
 		}
 		ids[d.Nodes[i].ID] = struct{}{}
 	}

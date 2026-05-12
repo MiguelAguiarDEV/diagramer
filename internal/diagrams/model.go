@@ -16,6 +16,7 @@ type Diagram struct {
 
 type Node struct {
 	ID       string   `json:"id"`
+	Kind     string   `json:"kind,omitempty"`
 	Position Position `json:"position"`
 	Data     NodeData `json:"data"`
 }

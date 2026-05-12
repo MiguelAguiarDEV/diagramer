@@ -3,17 +3,98 @@ const NODE_PAD_X = 20;
 const NODE_MIN_W = 80;
 const NODE_MAX_W = 320;
 const NODE_FONT = "13px system-ui, sans-serif";
+const ICON_SIZE = 20;
+const ICON_GAP = 6;
 
 const _measureCtx = document.createElement("canvas").getContext("2d");
 _measureCtx.font = NODE_FONT;
+
+function iconWidth(kind) {
+  const k = kind && KINDS[kind];
+  return k && k.icon ? ICON_SIZE + ICON_GAP : 0;
+}
 
 function nodeWidth(node) {
   const label = node.data.label || "";
   // Canvas measureText doesn't exactly match the SVG text render so we add a
   // small safety buffer (8 px) on top of the symmetric horizontal padding.
-  const w = _measureCtx.measureText(label).width + NODE_PAD_X * 2 + 8;
+  const w = _measureCtx.measureText(label).width + NODE_PAD_X * 2 + iconWidth(node.kind) + 8;
   return Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, Math.ceil(w)));
 }
+
+// ---------- node kinds ----------
+
+// Each icon draws into a 20×20 box. Use currentColor so CSS can theme it.
+function svgChild(parent, tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  parent.appendChild(el);
+  return el;
+}
+
+function drawDatabase(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "ellipse", { cx: 10, cy: 4, rx: 8, ry: 2.5, ...a });
+  svgChild(g, "path",    { d: "M2,4 V16 M18,4 V16", ...a });
+  svgChild(g, "ellipse", { cx: 10, cy: 16, rx: 8, ry: 2.5, ...a });
+  svgChild(g, "path",    { d: "M2,10 Q10,12.5 18,10", ...a });
+}
+
+function drawBackend(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "rect", { x: 2, y: 3, width: 16, height: 14, rx: 2, ...a });
+  svgChild(g, "path", { d: "M5,7 H15 M5,10 H15 M5,13 H15", ...a });
+  svgChild(g, "circle", { cx: 16, cy: 6, r: 0.8, fill: "currentColor", stroke: "none" });
+}
+
+function drawFrontend(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "rect", { x: 1, y: 3, width: 18, height: 12, rx: 2, ...a });
+  svgChild(g, "path", { d: "M1,6 H19", ...a });
+  svgChild(g, "circle", { cx: 3.5, cy: 4.5, r: 0.6, fill: "currentColor", stroke: "none" });
+  svgChild(g, "circle", { cx: 5.5, cy: 4.5, r: 0.6, fill: "currentColor", stroke: "none" });
+  svgChild(g, "circle", { cx: 7.5, cy: 4.5, r: 0.6, fill: "currentColor", stroke: "none" });
+  svgChild(g, "path", { d: "M7,18 H13 M10,15 V18", ...a });
+}
+
+function drawQueue(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "rect", { x: 2, y: 4,  width: 16, height: 3.5, rx: 1, ...a });
+  svgChild(g, "rect", { x: 2, y: 8.5, width: 16, height: 3.5, rx: 1, ...a });
+  svgChild(g, "rect", { x: 2, y: 13, width: 16, height: 3.5, rx: 1, ...a });
+}
+
+function drawCache(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "rect", { x: 4, y: 4, width: 12, height: 12, rx: 1, ...a });
+  svgChild(g, "path", { d: "M0,7 H4 M0,10 H4 M0,13 H4 M16,7 H20 M16,10 H20 M16,13 H20", ...a });
+  svgChild(g, "path", { d: "M7,4 V0 M10,4 V0 M13,4 V0 M7,20 V16 M10,20 V16 M13,20 V16", ...a });
+}
+
+function drawUser(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "circle", { cx: 10, cy: 7, r: 3.2, ...a });
+  svgChild(g, "path", { d: "M3,18 Q10,11 17,18", ...a });
+}
+
+function drawCloud(g) {
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  svgChild(g, "path", {
+    d: "M5,14 Q1,14 1,11 Q1,8 4,8 Q4,5 7,5 Q10,5 11,7 Q14,5 17,8 Q19,9 19,12 Q19,14 16,14 Z",
+    ...a,
+  });
+}
+
+const KINDS = {
+  box:      { label: "Box",      icon: null },
+  database: { label: "Database", icon: drawDatabase },
+  backend:  { label: "Backend",  icon: drawBackend  },
+  frontend: { label: "Frontend", icon: drawFrontend },
+  queue:    { label: "Queue",    icon: drawQueue    },
+  cache:    { label: "Cache",    icon: drawCache    },
+  user:     { label: "User",     icon: drawUser     },
+  cloud:    { label: "Cloud",    icon: drawCloud    },
+};
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
@@ -387,7 +468,16 @@ function render() {
       transform: `translate(${n.position.x},${n.position.y})`,
     });
     const w = nodeWidth(n);
+    const iw = iconWidth(n.kind);
     g.appendChild(svg("rect", { width: w, height: NODE_H }));
+    if (iw > 0) {
+      const iconG = svg("g", {
+        class: "node-icon",
+        transform: `translate(${NODE_PAD_X - 2},${(NODE_H - ICON_SIZE) / 2})`,
+      });
+      KINDS[n.kind].icon(iconG);
+      g.appendChild(iconG);
+    }
     // n8n-style "+" handle on the right side; visible on hover/select via CSS.
     const handle = svg("g", { class: "conn-handle", "data-id": n.id });
     handle.appendChild(svg("rect", {
@@ -400,7 +490,9 @@ function render() {
     handle.appendChild(ht);
     g.appendChild(handle);
 
-    const t = svg("text", { x: w / 2, y: NODE_H / 2 + 4, "text-anchor": "middle" });
+    // Centre the text in the area to the right of the icon.
+    const textCx = iw > 0 ? (NODE_PAD_X + iw + w) / 2 : w / 2;
+    const t = svg("text", { x: textCx, y: NODE_H / 2 + 4, "text-anchor": "middle" });
     t.textContent = n.data.label || "";
     g.appendChild(t);
     nodesLayer.appendChild(g);
@@ -495,26 +587,40 @@ function clientToModel(evt) {
   return { x: (sx - x) / zoom, y: (sy - y) / zoom };
 }
 
-function addBoxAt(modelX, modelY) {
-  const label = prompt("Box text:");
+function addBoxAt(modelX, modelY, kind) {
+  const defaultLabel = (kind && KINDS[kind]) ? KINDS[kind].label : "";
+  const label = prompt(`${defaultLabel || "Box"} text:`, defaultLabel);
   if (label === null) return;
   pushHistory();
-  diagram.nodes.push({
+  const node = {
     id: uid(),
     position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
-    data: { label: label.trim() || "Untitled" },
-  });
+    data: { label: label.trim() || defaultLabel || "Untitled" },
+  };
+  if (kind && kind !== "box") node.kind = kind;
+  diagram.nodes.push(node);
   save();
   render();
 }
 
-addBtn.addEventListener("click", () => {
-  // Drop the new box near the centre of the visible viewport, in model coords.
+function addAtViewportCenter(kind) {
   const rect = canvas.getBoundingClientRect();
   const { x: vx, y: vy, zoom } = diagram.viewport;
   const mx = (rect.width / 2 - vx) / zoom + (Math.random() - 0.5) * 80;
   const my = (rect.height / 2 - vy) / zoom + (Math.random() - 0.5) * 80;
-  addBoxAt(mx, my);
+  addBoxAt(mx, my, kind);
+}
+
+function kindMenuItems(onPick) {
+  return Object.keys(KINDS).map((kind) => ({
+    label: KINDS[kind].label,
+    action: () => onPick(kind),
+  }));
+}
+
+addBtn.addEventListener("click", () => {
+  const rect = addBtn.getBoundingClientRect();
+  showContextMenu(rect.left, rect.bottom + 2, kindMenuItems(addAtViewportCenter));
 });
 
 connectBtn.addEventListener("click", () => {
@@ -1091,8 +1197,15 @@ function showContextMenu(clientX, clientY, items) {
     const btn = document.createElement("button");
     btn.textContent = it.label;
     btn.addEventListener("click", () => {
+      // Items with a submenu replace the current menu in place; everything
+      // else closes the menu then runs its action.
+      if (it.submenu) {
+        const r = ctxMenuEl.getBoundingClientRect();
+        showContextMenu(r.left, r.top, it.submenu());
+        return;
+      }
       hideContextMenu();
-      it.action();
+      if (it.action) it.action();
     });
     ctxMenuEl.appendChild(btn);
   }
@@ -1152,16 +1265,35 @@ function alignSelected(axis, mode) {
 
 function emptyMenuItems(modelPos) {
   return [
-    { label: "Add box here", action: () => addBoxAt(modelPos.x, modelPos.y) },
+    {
+      label: "Add ▸",
+      submenu: () => kindMenuItems((kind) => addBoxAt(modelPos.x, modelPos.y, kind)),
+    },
   ];
 }
 
 function singleNodeMenuItems(id) {
   return [
     { label: "Edit text", action: () => startEdit("node", id) },
+    {
+      label: "Change type ▸",
+      submenu: () => kindMenuItems((kind) => changeNodeKind(id, kind)),
+    },
     { separator: true },
     { label: "Delete", action: () => deleteSelected() },
   ];
+}
+
+function changeNodeKind(id, kind) {
+  const node = diagram.nodes.find((n) => n.id === id);
+  if (!node) return;
+  const cur = node.kind || "box";
+  if (cur === kind) return;
+  pushHistory();
+  if (kind && kind !== "box") node.kind = kind;
+  else delete node.kind;
+  save();
+  render();
 }
 
 function singleEdgeMenuItems(id) {
