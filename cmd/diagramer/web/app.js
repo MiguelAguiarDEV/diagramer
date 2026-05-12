@@ -215,6 +215,7 @@ const diagramNameEl = document.getElementById("diagram-name");
 const ctxMenuEl = document.getElementById("ctx-menu");
 const importBtn = document.getElementById("import");
 const exportBtn = document.getElementById("export");
+const tidyBtn = document.getElementById("tidy");
 
 let diagram = null;
 let currentEtag = null;
@@ -1297,6 +1298,90 @@ window.addEventListener("popstate", async () => {
   }
 });
 
+// ---------- tidy up (auto-layout) ----------
+
+// Re-positions every node into clean columns derived from the edge graph.
+// Algorithm: Kahn-ish BFS from sources to assign each node a "level"
+// (longest path from any source). Nodes in cycles or fully disconnected
+// fall back to level 0. Levels become columns left-to-right, with nodes
+// inside each column stacked vertically and centred.
+function tidyUp() {
+  if (!diagram || diagram.nodes.length === 0) return;
+
+  const byId = new Map(diagram.nodes.map((n) => [n.id, n]));
+  const inAdj = new Map();
+  const outAdj = new Map();
+  for (const n of diagram.nodes) {
+    inAdj.set(n.id, []);
+    outAdj.set(n.id, []);
+  }
+  for (const e of diagram.edges) {
+    if (byId.has(e.source) && byId.has(e.target)) {
+      outAdj.get(e.source).push(e.target);
+      inAdj.get(e.target).push(e.source);
+    }
+  }
+
+  const level = new Map();
+  const queue = [];
+  for (const n of diagram.nodes) {
+    if (inAdj.get(n.id).length === 0) {
+      level.set(n.id, 0);
+      queue.push(n.id);
+    }
+  }
+  while (queue.length) {
+    const id = queue.shift();
+    const next = level.get(id) + 1;
+    for (const tgt of outAdj.get(id)) {
+      if (!level.has(tgt) || level.get(tgt) < next) {
+        level.set(tgt, next);
+        queue.push(tgt);
+      }
+    }
+  }
+  // Anything left (pure cycles) → level 0.
+  for (const n of diagram.nodes) {
+    if (!level.has(n.id)) level.set(n.id, 0);
+  }
+
+  const cols = new Map();
+  for (const n of diagram.nodes) {
+    const lvl = level.get(n.id);
+    if (!cols.has(lvl)) cols.set(lvl, []);
+    cols.get(lvl).push(n);
+  }
+
+  pushHistory();
+  const GAP_X = 80;
+  const GAP_Y = 30;
+  let cursorX = 0;
+  const maxLevel = Math.max(...cols.keys());
+  for (let lvl = 0; lvl <= maxLevel; lvl++) {
+    const colNodes = cols.get(lvl);
+    if (!colNodes || colNodes.length === 0) continue;
+    const sizes = colNodes.map((n) => nodeSize(n));
+    const colW = Math.max(...sizes.map((s) => s.w));
+    const totalH =
+      sizes.reduce((sum, s) => sum + s.h, 0) + GAP_Y * (colNodes.length - 1);
+    let cursorY = -totalH / 2;
+    for (let i = 0; i < colNodes.length; i++) {
+      const n = colNodes[i];
+      const s = sizes[i];
+      n.position.x = cursorX + (colW - s.w) / 2;
+      n.position.y = cursorY;
+      cursorY += s.h + GAP_Y;
+    }
+    cursorX += colW + GAP_X;
+  }
+
+  save();
+  render();
+  setStatus("tidied");
+}
+
+tidyBtn.addEventListener("click", tidyUp);
+
 // ---------- context menu ----------
 
 function showContextMenu(clientX, clientY, items) {
@@ -1384,6 +1469,8 @@ function emptyMenuItems(modelPos) {
       label: "Add ▸",
       submenu: () => kindMenuItems((kind) => addBoxAt(modelPos.x, modelPos.y, kind)),
     },
+    { separator: true },
+    { label: "Tidy up", action: tidyUp },
   ];
 }
 
