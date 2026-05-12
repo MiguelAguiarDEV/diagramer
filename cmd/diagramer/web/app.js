@@ -291,9 +291,11 @@ function center(node) {
   return { x: node.position.x + nodeWidth(node) / 2, y: node.position.y + NODE_H / 2 };
 }
 
-// Returns the midpoint of the node's side that faces `target` (a {x,y} point).
-// Picking sides (top/right/bottom/left) by comparing dx/w vs dy/h projects
-// each box onto its diagonal so connections always meet a side cleanly.
+// Returns the midpoint of the node's side that faces `target` (a {x,y} point)
+// along with which side it is. Picking sides by comparing dx/w vs dy/h
+// projects each box onto its diagonal so connections always meet a side
+// cleanly. The `side` is what the bezier control points use to decide
+// whether to push the curve out horizontally or vertically.
 function sideAnchor(node, target) {
   const w = nodeWidth(node);
   const c = { x: node.position.x + w / 2, y: node.position.y + NODE_H / 2 };
@@ -301,12 +303,35 @@ function sideAnchor(node, target) {
   const dy = target.y - c.y;
   if (Math.abs(dx) * NODE_H >= Math.abs(dy) * w) {
     return dx >= 0
-      ? { x: node.position.x + w, y: c.y }
-      : { x: node.position.x, y: c.y };
+      ? { x: node.position.x + w, y: c.y, side: "right" }
+      : { x: node.position.x, y: c.y, side: "left" };
   }
   return dy >= 0
-    ? { x: c.x, y: node.position.y + NODE_H }
-    : { x: c.x, y: node.position.y };
+    ? { x: c.x, y: node.position.y + NODE_H, side: "bottom" }
+    : { x: c.x, y: node.position.y, side: "top" };
+}
+
+// Builds an SVG cubic bezier path string between two anchors. Control points
+// extend perpendicular to the side each anchor lives on, with an offset that
+// scales with the distance between the two anchors (clamped to a sane range).
+function bezierPath(pa, pb) {
+  const dx = pb.x - pa.x;
+  const dy = pb.y - pa.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const off = Math.max(40, Math.min(dist * 0.5, 200));
+  const ca = controlPoint(pa, off);
+  const cb = controlPoint(pb, off);
+  return `M ${pa.x},${pa.y} C ${ca.x},${ca.y} ${cb.x},${cb.y} ${pb.x},${pb.y}`;
+}
+
+function controlPoint(anchor, offset) {
+  switch (anchor.side) {
+    case "right":  return { x: anchor.x + offset, y: anchor.y };
+    case "left":   return { x: anchor.x - offset, y: anchor.y };
+    case "bottom": return { x: anchor.x, y: anchor.y + offset };
+    case "top":    return { x: anchor.x, y: anchor.y - offset };
+    default:       return { x: anchor.x, y: anchor.y };
+  }
 }
 
 function render() {
@@ -319,20 +344,18 @@ function render() {
     if (!a || !b) continue;
     const pa = sideAnchor(a, center(b));
     const pb = sideAnchor(b, center(a));
+    const d = bezierPath(pa, pb);
     const isSel = e.id === selectedEdgeId;
     const eg = svg("g", {
       class: "edge-group" + (isSel ? " selected" : ""),
       "data-id": e.id,
     });
     // Invisible thick hit area to make edges easy to click.
-    eg.appendChild(svg("line", {
-      class: "edge-hit",
-      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
-    }));
-    eg.appendChild(svg("line", {
+    eg.appendChild(svg("path", { class: "edge-hit", d }));
+    eg.appendChild(svg("path", {
       class: "edge",
       "marker-end": isSel ? "url(#arrow-selected)" : "url(#arrow)",
-      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+      d,
     }));
     // Edge label centred on the midpoint with a small background for legibility.
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
@@ -423,24 +446,33 @@ function rectsOverlap(a, b) {
   return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
 }
 
-// Draws (or removes) the ghost line shown while dragging from a "+" handle.
+// Draws (or removes) the ghost bezier shown while dragging from a "+" handle.
 function syncPendingEdge() {
-  let line = edgesLayer.querySelector(".pending-edge");
+  let path = edgesLayer.querySelector(".pending-edge");
   if (!pendingEdge) {
-    if (line) line.remove();
+    if (path) path.remove();
     return;
   }
   const src = diagram.nodes.find((n) => n.id === pendingEdge.sourceId);
   if (!src) return;
   const a = sideAnchor(src, pendingEdge.cursor);
-  if (!line) {
-    line = svg("line", { class: "pending-edge", "marker-end": "url(#arrow)" });
-    edgesLayer.appendChild(line);
+  // Give the cursor a synthetic anchor with the opposite side of the source
+  // so the ghost curves naturally instead of looping back on itself.
+  const cursorAnchor = {
+    x: pendingEdge.cursor.x,
+    y: pendingEdge.cursor.y,
+    side: oppositeSide(a.side),
+  };
+  const d = bezierPath(a, cursorAnchor);
+  if (!path) {
+    path = svg("path", { class: "pending-edge", "marker-end": "url(#arrow)" });
+    edgesLayer.appendChild(path);
   }
-  line.setAttribute("x1", a.x);
-  line.setAttribute("y1", a.y);
-  line.setAttribute("x2", pendingEdge.cursor.x);
-  line.setAttribute("y2", pendingEdge.cursor.y);
+  path.setAttribute("d", d);
+}
+
+function oppositeSide(side) {
+  return { right: "left", left: "right", top: "bottom", bottom: "top" }[side] || "left";
 }
 
 function applyViewport() {
