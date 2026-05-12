@@ -693,33 +693,15 @@ function simplifyCollinear(points) {
   return out;
 }
 
-// Builds an SVG path with quadratic-bezier rounded corners at every turn.
+// Builds an SVG path that walks straight from waypoint to waypoint.
+// (Rounded corners caused glitches when consecutive turns were too close
+// for the corner radius — orthogonal segments are far more predictable.)
 function smoothedPathD(pts) {
   if (pts.length === 0) return "";
-  if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
-  if (pts.length === 2) return `M ${pts[0].x},${pts[0].y} L ${pts[1].x},${pts[1].y}`;
-
   let d = `M ${pts[0].x},${pts[0].y}`;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const prev = pts[i - 1];
-    const cur = pts[i];
-    const next = pts[i + 1];
-
-    const inDx = cur.x - prev.x, inDy = cur.y - prev.y;
-    const inLen = Math.hypot(inDx, inDy) || 1;
-    const outDx = next.x - cur.x, outDy = next.y - cur.y;
-    const outLen = Math.hypot(outDx, outDy) || 1;
-    const r = Math.min(ROUTE_CORNER_R, inLen / 2, outLen / 2);
-
-    const ax = cur.x - (inDx / inLen) * r;
-    const ay = cur.y - (inDy / inLen) * r;
-    const bx = cur.x + (outDx / outLen) * r;
-    const by = cur.y + (outDy / outLen) * r;
-
-    d += ` L ${ax},${ay} Q ${cur.x},${cur.y} ${bx},${by}`;
+  for (let i = 1; i < pts.length; i++) {
+    d += ` L ${pts[i].x},${pts[i].y}`;
   }
-  const last = pts[pts.length - 1];
-  d += ` L ${last.x},${last.y}`;
   return d;
 }
 
