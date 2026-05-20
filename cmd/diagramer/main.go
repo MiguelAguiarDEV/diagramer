@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MiguelAguiarDEV/diagramer/internal/diagrams"
+	mcpserver "github.com/MiguelAguiarDEV/diagramer/internal/mcp"
 	"github.com/MiguelAguiarDEV/diagramer/internal/server"
 	"github.com/MiguelAguiarDEV/diagramer/internal/storage"
 )
@@ -17,6 +18,7 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address (host:port)")
 	dataDir := flag.String("data", "./data", "directory where diagrams are stored")
+	mcp := flag.Bool("mcp", false, "run as an MCP server over stdio (no HTTP)")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -28,6 +30,18 @@ func main() {
 	}
 
 	svc := diagrams.NewService(repo)
+
+	if *mcp {
+		// MCP mode: stdio carries JSON-RPC, logs stay on stderr.
+		ms := mcpserver.New(svc, logger)
+		ctx, cancel := signalContext()
+		defer cancel()
+		if err := ms.Run(ctx); err != nil {
+			logger.Error("mcp server error", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	srv := server.New(*addr, svc, staticHandler(), logger)
 
@@ -48,4 +62,15 @@ func main() {
 	if err := srv.Stop(ctx); err != nil {
 		logger.Error("shutdown error", "err", err)
 	}
+}
+
+func signalContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ch
+		cancel()
+	}()
+	return ctx, cancel
 }
