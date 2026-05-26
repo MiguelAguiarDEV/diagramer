@@ -28,6 +28,9 @@ type Position struct {
 
 type NodeData struct {
 	Label string `json:"label"`
+	// Optional per-node colors. Empty → fall back to the CSS defaults.
+	Fill   string `json:"fill,omitempty"`
+	Stroke string `json:"stroke,omitempty"`
 }
 
 type Edge struct {

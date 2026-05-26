@@ -615,6 +615,10 @@ function render() {
       "data-id": n.id,
       transform: `translate(${n.position.x},${n.position.y})`,
     });
+    // Per-node colors ride on inherited CSS custom properties so the default
+    // hover/selected stroke rules still win when those states are active.
+    if (n.data.fill) g.style.setProperty("--node-fill", n.data.fill);
+    if (n.data.stroke) g.style.setProperty("--node-stroke", n.data.stroke);
     const { w, h } = nodeSize(n);
     const iw = iconWidth(n.kind);
     drawShape(g, nodeShape(n), w, h);
@@ -1474,6 +1478,12 @@ function showContextMenu(clientX, clientY, items) {
     }
     const btn = document.createElement("button");
     btn.textContent = it.label;
+    if (it.swatch) {
+      const sw = document.createElement("span");
+      sw.className = "ctx-swatch";
+      sw.style.background = it.swatch;
+      btn.prepend(sw);
+    }
     btn.addEventListener("click", () => {
       // Items with a submenu replace the current menu in place; everything
       // else closes the menu then runs its action.
@@ -1553,6 +1563,42 @@ function emptyMenuItems(modelPos) {
   ];
 }
 
+// Dark-theme palette: muted fill + a brighter coordinated stroke. "Default"
+// clears both back to the CSS fallback.
+const COLOR_PRESETS = [
+  { name: "Default", fill: null,      stroke: null,      swatch: "#1f2937" },
+  { name: "Blue",    fill: "#13315c", stroke: "#3b82f6", swatch: "#3b82f6" },
+  { name: "Green",   fill: "#14432a", stroke: "#22c55e", swatch: "#22c55e" },
+  { name: "Amber",   fill: "#422006", stroke: "#f59e0b", swatch: "#f59e0b" },
+  { name: "Red",     fill: "#450a0a", stroke: "#ef4444", swatch: "#ef4444" },
+  { name: "Purple",  fill: "#3b0764", stroke: "#a855f7", swatch: "#a855f7" },
+  { name: "Teal",    fill: "#0f3d3e", stroke: "#14b8a6", swatch: "#14b8a6" },
+];
+
+function setNodeColor(ids, preset) {
+  const targets = [...ids]
+    .map((id) => diagram.nodes.find((n) => n.id === id))
+    .filter(Boolean);
+  if (targets.length === 0) return;
+  pushHistory();
+  for (const n of targets) {
+    if (preset.fill) n.data.fill = preset.fill;
+    else delete n.data.fill;
+    if (preset.stroke) n.data.stroke = preset.stroke;
+    else delete n.data.stroke;
+  }
+  save();
+  render();
+}
+
+function colorMenuItems(ids) {
+  return COLOR_PRESETS.map((p) => ({
+    label: p.name,
+    swatch: p.swatch,
+    action: () => setNodeColor(ids, p),
+  }));
+}
+
 function singleNodeMenuItems(id) {
   return [
     { label: "Edit text", action: () => startEdit("node", id) },
@@ -1560,6 +1606,7 @@ function singleNodeMenuItems(id) {
       label: "Change type ▸",
       submenu: () => kindMenuItems((kind) => changeNodeKind(id, kind)),
     },
+    { label: "Color ▸", submenu: () => colorMenuItems(new Set([id])) },
     { separator: true },
     { label: "Delete", action: () => deleteSelected() },
   ];
@@ -1609,6 +1656,8 @@ function multiNodesMenuItems() {
     { label: "Horizontal · top",    action: () => alignSelected("y", "min") },
     { label: "Horizontal · center", action: () => alignSelected("y", "center") },
     { label: "Horizontal · bottom", action: () => alignSelected("y", "max") },
+    { separator: true },
+    { label: "Color ▸", submenu: () => colorMenuItems(new Set(selectedIds)) },
     { separator: true },
     { label: "Delete all", action: () => deleteSelected() },
   ];
@@ -1693,6 +1742,8 @@ function isValidImport(raw) {
     if (typeof n.id !== "string") return false;
     if (!n.position || typeof n.position.x !== "number" || typeof n.position.y !== "number") return false;
     if (!n.data || typeof n.data.label !== "string") return false;
+    if (n.data.fill !== undefined && typeof n.data.fill !== "string") return false;
+    if (n.data.stroke !== undefined && typeof n.data.stroke !== "string") return false;
   }
   for (const e of raw.edges) {
     if (typeof e.id !== "string" || typeof e.source !== "string" || typeof e.target !== "string") return false;

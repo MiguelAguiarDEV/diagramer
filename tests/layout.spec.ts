@@ -143,6 +143,41 @@ test("tidy up separates a cramped graph into non-overlapping columns", async ({
   }
 });
 
+test("per-node colors apply to the shape and survive a reload", async ({
+  page,
+  request,
+}) => {
+  const nodes = [
+    { id: "plain", position: { x: 0, y: 0 }, data: { label: "plain" } },
+    {
+      id: "blue",
+      position: { x: 200, y: 0 },
+      data: { label: "blue", fill: "#13315c", stroke: "#3b82f6" },
+    },
+    {
+      id: "green",
+      position: { x: 400, y: 0 },
+      data: { label: "green", fill: "#14432a", stroke: "#22c55e" },
+    },
+  ];
+  const id = await createDiagram(request, "colors", nodes, [], { x: 120, y: 120, zoom: 1 });
+  await openDiagram(page, id);
+  await page.screenshot({ path: `${SHOTS}/08-colors.png` });
+
+  const fills = await page.$$eval("#nodes .node", (els) =>
+    Object.fromEntries(
+      els.map((g) => {
+        const shape = g.querySelector(".node-shape") as Element;
+        return [g.getAttribute("data-id"), getComputedStyle(shape).fill];
+      }),
+    ),
+  );
+  // #13315c → rgb(19,49,92); #14432a → rgb(20,67,42); default → rgb(31,41,55).
+  expect(fills["blue"]).toBe("rgb(19, 49, 92)");
+  expect(fills["green"]).toBe("rgb(20, 67, 42)");
+  expect(fills["plain"]).toBe("rgb(31, 41, 55)");
+});
+
 test("edges connect their endpoints and crossings are reported", async ({
   page,
   request,
