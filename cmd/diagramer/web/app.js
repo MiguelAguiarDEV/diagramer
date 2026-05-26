@@ -219,6 +219,7 @@ const tidyBtn = document.getElementById("tidy");
 const minimapSvg = document.getElementById("minimap");
 const minimapContent = document.getElementById("minimap-content");
 const minimapVp = document.getElementById("minimap-vp");
+const themeToggleBtn = document.getElementById("theme-toggle");
 
 let diagram = null;
 let currentEtag = null;
@@ -619,8 +620,13 @@ function render() {
       transform: `translate(${n.position.x},${n.position.y})`,
     });
     // Per-node colors ride on inherited CSS custom properties so the default
-    // hover/selected stroke rules still win when those states are active.
-    if (n.data.fill) g.style.setProperty("--node-fill", n.data.fill);
+    // hover/selected stroke rules still win when those states are active. The
+    // color presets are all dark fills, so a custom fill also forces light
+    // label text — otherwise the theme's dark text is unreadable on it.
+    if (n.data.fill) {
+      g.style.setProperty("--node-fill", n.data.fill);
+      g.style.setProperty("--node-text", "#f3f4f6");
+    }
     if (n.data.stroke) g.style.setProperty("--node-stroke", n.data.stroke);
     const { w, h } = nodeSize(n);
     const iw = iconWidth(n.kind);
@@ -840,6 +846,43 @@ window.addEventListener("mouseup", () => {
     save();
   }
 });
+
+// ---------- theme ----------
+
+const THEME_KEY = "diagramer-theme";
+// Shown in dark mode (click → go light); a moon is shown in light mode.
+const SUN_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+  '<circle cx="12" cy="12" r="4"></circle>' +
+  '<path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>' +
+  "</svg>";
+const MOON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>' +
+  "</svg>";
+
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+
+function syncThemeButton() {
+  const t = currentTheme();
+  themeToggleBtn.innerHTML = t === "dark" ? SUN_SVG : MOON_SVG;
+  themeToggleBtn.title = t === "dark" ? "Switch to light theme" : "Switch to dark theme";
+}
+
+themeToggleBtn.addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (e) {
+    /* private mode — theme just won't persist */
+  }
+  syncThemeButton();
+});
+
+syncThemeButton();
 
 function clientToModel(evt) {
   const rect = canvas.getBoundingClientRect();
@@ -1964,6 +2007,9 @@ async function buildExportSvg() {
   cloned.removeAttribute("id");
   cloned.removeAttribute("class");
   cloned.style.cssText = "";
+  // The standalone SVG's root is the <svg> itself, so carrying data-theme here
+  // makes the :root[data-theme="light"] overrides apply in the exported file.
+  cloned.setAttribute("data-theme", currentTheme());
   // Inline the app CSS so the SVG looks right outside the browser.
   const css = await loadCanvasCss();
   const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
@@ -1994,8 +2040,11 @@ async function exportPNG() {
     c.width = Math.ceil(bbox.w * SCALE);
     c.height = Math.ceil(bbox.h * SCALE);
     const ctx = c.getContext("2d");
-    // Solid dark background matches what the user sees in-app.
-    ctx.fillStyle = "#0b0b0d";
+    // Match the in-app background of the active theme.
+    const bg =
+      getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() ||
+      "#0b0b0d";
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const blob = await new Promise((resolve) =>

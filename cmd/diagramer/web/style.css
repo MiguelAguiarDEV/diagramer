@@ -1,9 +1,82 @@
+/* ---------- theme tokens ---------- */
+/* Base :root = dark ("midnight"). [data-theme="light"] = warm vanilla.
+   The dark palette keeps the original values so nothing regresses. */
+:root {
+  --bg: #0b0b0d;
+  --surface: #131418;
+  --surface-bar: #15161a;
+  --surface-btn: #23252c;
+  --surface-btn-hover: #2c2f37;
+  --surface-hover: #1c1d23;
+  --border: #2a2b32;
+  --border-btn: #2f323b;
+  --text: #e5e7eb;
+  --text-muted: #9ca3af;
+  --text-list: #d1d5db;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --active-bg: #1e3a8a;
+  --active-text: #ffffff;
+  --node-fill: #1f2937;
+  --node-stroke: #374151;
+  --node-stroke-hover: #60a5fa;
+  --node-text: #e5e7eb;
+  --node-icon: #93c5fd;
+  --connect: #f59e0b;
+  --edge: #6b7280;
+  --edge-hover: #93c5fd;
+  --edge-label-bg: #0b0b0d;
+  --handle-fill: #ffffff;
+  --dot: #1f2128;
+  --danger: #ef4444;
+  --lasso-fill: rgba(37, 99, 235, 0.1);
+  --minimap-bg: rgba(19, 20, 24, 0.85);
+  --minimap-node: #374151;
+  --minimap-vp-fill: rgba(37, 99, 235, 0.18);
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="light"] {
+  --bg: #faf4e8;
+  --surface: #f3ead7;
+  --surface-bar: #f0e6d1;
+  --surface-btn: #ece1c9;
+  --surface-btn-hover: #e3d5b8;
+  --surface-hover: #efe6d3;
+  --border: #ddd0b6;
+  --border-btn: #d3c4a6;
+  --text: #4a4234;
+  --text-muted: #8a7d63;
+  --text-list: #5b5343;
+  --accent: #3f72ab;
+  --accent-text: #ffffff;
+  --active-bg: #3f72ab;
+  --active-text: #ffffff;
+  --node-fill: #fffaf0;
+  --node-stroke: #c9b797;
+  --node-stroke-hover: #3f72ab;
+  --node-text: #4a4234;
+  --node-icon: #b07a3c;
+  --connect: #d98324;
+  --edge: #a8946e;
+  --edge-hover: #3f72ab;
+  --edge-label-bg: #faf4e8;
+  --handle-fill: #ffffff;
+  --dot: #e7dcc4;
+  --danger: #c0492f;
+  --lasso-fill: rgba(63, 114, 171, 0.12);
+  --minimap-bg: rgba(243, 234, 215, 0.9);
+  --minimap-node: #d6c6a3;
+  --minimap-vp-fill: rgba(63, 114, 171, 0.18);
+  --shadow: rgba(120, 100, 70, 0.25);
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
   font-family: system-ui, sans-serif;
-  background: #0b0b0d;
-  color: #e5e7eb;
+  background: var(--bg);
+  color: var(--text);
   display: flex;
   flex-direction: row;
 }
@@ -11,8 +84,8 @@ body {
 #sidebar {
   width: 240px;
   flex: 0 0 240px;
-  background: #131418;
-  border-right: 1px solid #2a2b32;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -22,13 +95,13 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid #2a2b32;
+  border-bottom: 1px solid var(--border);
 }
 .sidebar-head .brand { font-weight: 700; }
 .sidebar-head button {
-  background: #23252c;
-  color: #e5e7eb;
-  border: 1px solid #2f323b;
+  background: var(--surface-btn);
+  color: var(--text);
+  border: 1px solid var(--border-btn);
   border-radius: 4px;
   width: 28px;
   height: 28px;
@@ -36,7 +109,7 @@ body {
   font: inherit;
   line-height: 1;
 }
-.sidebar-head button:hover { background: #2c2f37; }
+.sidebar-head button:hover { background: var(--surface-btn-hover); }
 
 #diagram-list {
   list-style: none;
@@ -52,10 +125,10 @@ body {
   padding: 6px 12px;
   cursor: pointer;
   font-size: 13px;
-  color: #d1d5db;
+  color: var(--text-list);
 }
-#diagram-list li:hover { background: #1c1d23; }
-#diagram-list li.active { background: #1e3a8a; color: #fff; }
+#diagram-list li:hover { background: var(--surface-hover); }
+#diagram-list li.active { background: var(--active-bg); color: var(--active-text); }
 #diagram-list .name {
   flex: 1 1 auto;
   white-space: nowrap;
@@ -65,7 +138,7 @@ body {
 #diagram-list .del {
   background: transparent;
   border: none;
-  color: #9ca3af;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 14px;
   padding: 0 4px;
@@ -74,13 +147,13 @@ body {
 }
 #diagram-list li:hover .del,
 #diagram-list li.active .del { visibility: visible; }
-#diagram-list .del:hover { color: #ef4444; }
+#diagram-list .del:hover { color: var(--danger); }
 #diagram-list .name-input {
   flex: 1 1 auto;
   font: inherit;
-  color: #e5e7eb;
-  background: #0b0b0d;
-  border: 1px solid #2563eb;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
   border-radius: 3px;
   padding: 2px 4px;
   outline: none;
@@ -100,8 +173,8 @@ main {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: #15161a;
-  border-bottom: 1px solid #2a2b32;
+  background: var(--surface-bar);
+  border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
 .toolbar .title {
@@ -109,25 +182,39 @@ main {
   margin-right: 12px;
 }
 .toolbar button {
-  background: #23252c;
-  color: #e5e7eb;
-  border: 1px solid #2f323b;
+  background: var(--surface-btn);
+  color: var(--text);
+  border: 1px solid var(--border-btn);
   padding: 6px 10px;
   border-radius: 4px;
   cursor: pointer;
   font: inherit;
 }
-.toolbar button:hover:not(:disabled) { background: #2c2f37; }
+.toolbar button:hover:not(:disabled) { background: var(--surface-btn-hover); }
 .toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
-.toolbar button.active { background: #2563eb; border-color: #2563eb; }
-.status { margin-left: auto; font-size: 12px; color: #9ca3af; }
+.toolbar button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.status { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+
+#theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+#theme-toggle svg { width: 16px; height: 16px; display: block; }
 
 #canvas {
   flex: 1 1 auto;
   width: 100%;
   background:
-    radial-gradient(circle, #1f2128 1px, transparent 1px) 0 0 / 24px 24px,
-    #0b0b0d;
+    radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
   cursor: default;
 }
 #canvas.connecting { cursor: crosshair; }
@@ -135,33 +222,36 @@ main {
 #canvas.panning,
 #canvas.space-pan.panning { cursor: grabbing; }
 
+#arrow path { fill: var(--edge); }
+#arrow-selected path { fill: var(--accent); }
+
 .node-shape {
-  fill: var(--node-fill, #1f2937);
-  stroke: var(--node-stroke, #374151);
+  fill: var(--node-fill);
+  stroke: var(--node-stroke);
   stroke-width: 1;
 }
 .node text {
-  fill: #e5e7eb;
+  fill: var(--node-text);
   font: 13px system-ui, sans-serif;
   pointer-events: none;
   user-select: none;
 }
-.node:hover .node-shape { stroke: #60a5fa; }
-.node.selected .node-shape { stroke: #2563eb; stroke-width: 2; }
-.node.connect-source .node-shape { stroke: #f59e0b; stroke-width: 2; }
+.node:hover .node-shape { stroke: var(--node-stroke-hover); }
+.node.selected .node-shape { stroke: var(--accent); stroke-width: 2; }
+.node.connect-source .node-shape { stroke: var(--connect); stroke-width: 2; }
 
 .node-icon {
-  color: #93c5fd;
+  color: var(--node-icon);
   pointer-events: none;
 }
 
 #node-editor {
   position: absolute;
-  border: 2px solid #2563eb;
+  border: 2px solid var(--accent);
   border-radius: 6px;
   outline: none;
-  background: #1f2937;
-  color: #e5e7eb;
+  background: var(--node-fill);
+  color: var(--node-text);
   font-family: system-ui, sans-serif;
   text-align: center;
   padding: 0 8px;
@@ -172,12 +262,12 @@ main {
 
 #ctx-menu {
   position: absolute;
-  background: #1c1d23;
-  border: 1px solid #2a2b32;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 0;
   min-width: 180px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px var(--shadow);
   z-index: 100;
   user-select: none;
 }
@@ -186,17 +276,17 @@ main {
   display: block;
   width: 100%;
   background: transparent;
-  color: #e5e7eb;
+  color: var(--text);
   border: none;
   text-align: left;
   padding: 6px 12px;
   cursor: pointer;
   font: 13px system-ui, sans-serif;
 }
-#ctx-menu button:hover { background: #2563eb; color: #fff; }
+#ctx-menu button:hover { background: var(--accent); color: var(--accent-text); }
 #ctx-menu .sep {
   height: 1px;
-  background: #2a2b32;
+  background: var(--border);
   margin: 4px 0;
 }
 #ctx-menu .ctx-swatch {
@@ -204,13 +294,13 @@ main {
   width: 12px;
   height: 12px;
   border-radius: 3px;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--border-btn);
   margin-right: 8px;
   vertical-align: -1px;
 }
 
 .edge {
-  stroke: #6b7280;
+  stroke: var(--edge);
   stroke-width: 1.5;
   fill: none;
   pointer-events: none;
@@ -221,33 +311,33 @@ main {
   fill: none;
   cursor: pointer;
 }
-.edge-group:hover .edge { stroke: #93c5fd; }
-.edge-group.selected .edge { stroke: #2563eb; stroke-width: 2.5; }
+.edge-group:hover .edge { stroke: var(--edge-hover); }
+.edge-group.selected .edge { stroke: var(--accent); stroke-width: 2.5; }
 
 .edge-handle {
-  fill: #fff;
-  stroke: #2563eb;
+  fill: var(--handle-fill);
+  stroke: var(--accent);
   stroke-width: 2;
   cursor: grab;
 }
 .edge-handle:active { cursor: grabbing; }
 
 .edge-label {
-  fill: #e5e7eb;
+  fill: var(--node-text);
   font: 12px system-ui, sans-serif;
   pointer-events: none;
   user-select: none;
 }
 .edge-label-bg {
-  fill: #0b0b0d;
-  stroke: #2a2b32;
+  fill: var(--edge-label-bg);
+  stroke: var(--border);
   stroke-width: 1;
   pointer-events: none;
 }
-.edge-group.selected .edge-label-bg { stroke: #2563eb; }
+.edge-group.selected .edge-label-bg { stroke: var(--accent); }
 
 .pending-edge {
-  stroke: #93c5fd;
+  stroke: var(--edge-hover);
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
   fill: none;
@@ -255,8 +345,8 @@ main {
 }
 
 .lasso {
-  fill: rgba(37, 99, 235, 0.1);
-  stroke: #2563eb;
+  fill: var(--lasso-fill);
+  stroke: var(--accent);
   stroke-width: 1;
   stroke-dasharray: 4 3;
   pointer-events: none;
@@ -268,11 +358,11 @@ main {
   transition: opacity 0.1s;
 }
 .conn-handle rect {
-  fill: #2563eb;
-  stroke: #2563eb;
+  fill: var(--accent);
+  stroke: var(--accent);
 }
 .conn-handle text {
-  fill: white;
+  fill: var(--accent-text);
   font: bold 14px system-ui, sans-serif;
   user-select: none;
   pointer-events: none;
@@ -286,24 +376,24 @@ main {
   bottom: 16px;
   width: 200px;
   height: 150px;
-  background: rgba(19, 20, 24, 0.85);
-  border: 1px solid #2a2b32;
+  background: var(--minimap-bg);
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   z-index: 50;
 }
 .minimap-node {
-  fill: #374151;
+  fill: var(--minimap-node);
   stroke: none;
 }
 .minimap-edge {
-  stroke: #4b5563;
+  stroke: var(--edge);
   fill: none;
   vector-effect: non-scaling-stroke;
 }
 #minimap-vp {
-  fill: rgba(37, 99, 235, 0.18);
-  stroke: #3b82f6;
+  fill: var(--minimap-vp-fill);
+  stroke: var(--accent);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
