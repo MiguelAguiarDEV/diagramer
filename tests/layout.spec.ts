@@ -162,6 +162,8 @@ test("per-node colors apply to the shape and survive a reload", async ({
   ];
   const id = await createDiagram(request, "colors", nodes, [], { x: 120, y: 120, zoom: 1 });
   await openDiagram(page, id);
+  // Pin the dark theme so the "plain" default matches the expected hex.
+  await ensureTheme(page, "dark");
   await page.screenshot({ path: `${SHOTS}/08-colors.png` });
 
   const fills = await page.$$eval("#nodes .node", (els) =>
@@ -199,6 +201,63 @@ test("edges connect their endpoints and crossings are reported", async ({
   }
   const crossings = await countEdgeNodeCrossings(page);
   console.log(`[visual] edge↔node crossings (informational): ${crossings}`);
+});
+
+async function ensureTheme(page: import("@playwright/test").Page, want: string) {
+  const cur = await page.evaluate(() =>
+    document.documentElement.getAttribute("data-theme"),
+  );
+  if (cur !== want) await page.click("#theme-toggle");
+}
+
+test("theme toggle switches palette, persists, and renders both modes", async ({
+  page,
+  request,
+}) => {
+  const nodes = [
+    mkNode("a", "rect", "Client", 0, 0),
+    mkNode("b", "backend", "API", 260, 0),
+    mkNode("c", "database", "DB", 520, 0),
+    mkNode("d", "circle", "Cache", 260, 190),
+    {
+      id: "e",
+      position: { x: 0, y: 190 },
+      data: { label: "Queue", fill: "#13315c", stroke: "#3b82f6" },
+    },
+  ];
+  const edges = [
+    mkEdge("e1", "a", "b", "http"),
+    mkEdge("e2", "b", "c", "sql"),
+    mkEdge("e3", "b", "d"),
+  ];
+  const id = await createDiagram(request, "theme", nodes, edges, { x: 160, y: 150, zoom: 1 });
+  await openDiagram(page, id);
+
+  const bgOf = () =>
+    page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(),
+    );
+
+  await ensureTheme(page, "dark");
+  await page.waitForTimeout(50);
+  await page.screenshot({ path: `${SHOTS}/10-theme-dark.png` });
+  const darkBg = await bgOf();
+
+  await ensureTheme(page, "light");
+  expect(
+    await page.evaluate(() => document.documentElement.getAttribute("data-theme")),
+  ).toBe("light");
+  await page.waitForTimeout(50);
+  await page.screenshot({ path: `${SHOTS}/11-theme-light.png` });
+  const lightBg = await bgOf();
+  expect(lightBg).not.toBe(darkBg);
+
+  // Choice survives a reload (persisted in localStorage, applied pre-paint).
+  await page.reload();
+  await page.waitForSelector("#nodes .node");
+  expect(
+    await page.evaluate(() => document.documentElement.getAttribute("data-theme")),
+  ).toBe("light");
 });
 
 test("minimap mirrors the nodes and recenters the view on click", async ({

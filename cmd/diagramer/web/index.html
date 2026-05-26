@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>diagramer</title>
   <link rel="stylesheet" href="/style.css">
+  <script>
+    // Set the theme before first paint to avoid a flash of the wrong palette.
+    (function () {
+      try {
+        var t = localStorage.getItem("diagramer-theme");
+        if (t !== "light" && t !== "dark") {
+          t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
 </head>
 <body>
   <aside id="sidebar">
@@ -24,16 +38,17 @@
       <button id="import">Import</button>
       <button id="export">Export</button>
       <span id="status" class="status"></span>
+      <button id="theme-toggle" title="Toggle theme" aria-label="Toggle theme"></button>
     </header>
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"></path>
+          <path d="M0,0 L10,5 L0,10 z"></path>
         </marker>
         <marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"></path>
+          <path d="M0,0 L10,5 L0,10 z"></path>
         </marker>
       </defs>
       <g id="viewport">
