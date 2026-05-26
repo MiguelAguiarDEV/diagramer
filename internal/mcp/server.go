@@ -75,6 +75,8 @@ type addNodeInput struct {
 	Label     string  `json:"label,omitempty" jsonschema:"label text (optional)"`
 	X         float64 `json:"x" jsonschema:"x position in model coords"`
 	Y         float64 `json:"y" jsonschema:"y position in model coords"`
+	Fill      string  `json:"fill,omitempty" jsonschema:"fill color as a CSS hex like #13315c (optional)"`
+	Stroke    string  `json:"stroke,omitempty" jsonschema:"border color as a CSS hex like #3b82f6 (optional)"`
 }
 
 type idOutput struct {
@@ -88,6 +90,8 @@ type updateNodeInput struct {
 	Label     *string  `json:"label,omitempty" jsonschema:"new label (omit to keep)"`
 	X         *float64 `json:"x,omitempty" jsonschema:"new x (omit to keep)"`
 	Y         *float64 `json:"y,omitempty" jsonschema:"new y (omit to keep)"`
+	Fill      *string  `json:"fill,omitempty" jsonschema:"new fill hex; empty string clears it (omit to keep)"`
+	Stroke    *string  `json:"stroke,omitempty" jsonschema:"new border hex; empty string clears it (omit to keep)"`
 }
 
 type deleteNodeInput struct {
@@ -225,7 +229,7 @@ func (s *Server) addNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in addN
 		ID:       uuid.NewString(),
 		Kind:     in.Kind,
 		Position: diagrams.Position{X: in.X, Y: in.Y},
-		Data:     diagrams.NodeData{Label: in.Label},
+		Data:     diagrams.NodeData{Label: in.Label, Fill: in.Fill, Stroke: in.Stroke},
 	}
 	d.Nodes = append(d.Nodes, node)
 	if _, err := s.svc.Update(ctx, d, ""); err != nil {
@@ -253,6 +257,12 @@ func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 			}
 			if in.Y != nil {
 				d.Nodes[i].Position.Y = *in.Y
+			}
+			if in.Fill != nil {
+				d.Nodes[i].Data.Fill = *in.Fill
+			}
+			if in.Stroke != nil {
+				d.Nodes[i].Data.Stroke = *in.Stroke
 			}
 			found = true
 			break
