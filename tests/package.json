@@ -1,0 +1,13 @@
+{
+  "name": "diagramer-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright E2E + visual layout checks for diagramer",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

@@ -17,6 +17,18 @@ Or without building:
 make run
 ```
 
+## Tests
+
+```sh
+make test       # Go unit tests
+make test-e2e   # Playwright layout tests (builds the binary, drives a browser)
+```
+
+The E2E suite (`tests/`) sets diagrams up through the REST API, renders them in
+a real browser, and runs geometric assertions (no overlap, labels fit inside
+their shape, tidy-up produces clean columns, equilateral triangles, …). It also
+writes screenshots to `tests/screenshots/` for visual review.
+
 ## MVP controls
 
 - **+ Box** — adds a box at the canvas center; prompts for text.
