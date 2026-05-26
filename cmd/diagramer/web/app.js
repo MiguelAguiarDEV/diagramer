@@ -216,6 +216,9 @@ const ctxMenuEl = document.getElementById("ctx-menu");
 const importBtn = document.getElementById("import");
 const exportBtn = document.getElementById("export");
 const tidyBtn = document.getElementById("tidy");
+const minimapSvg = document.getElementById("minimap");
+const minimapContent = document.getElementById("minimap-content");
+const minimapVp = document.getElementById("minimap-vp");
 
 let diagram = null;
 let currentEtag = null;
@@ -666,6 +669,7 @@ function render() {
   applyViewport();
   syncPendingEdge();
   syncLasso();
+  renderMinimap();
 }
 
 // Draws (or removes) the dashed lasso rectangle in model coords.
@@ -731,6 +735,7 @@ function applyViewport() {
   const { x, y, zoom } = diagram.viewport;
   viewportLayer.setAttribute("transform", `translate(${x},${y}) scale(${zoom})`);
   if (editing) positionEditor();
+  updateMinimapViewport();
 }
 
 function svg(tag, attrs) {
@@ -738,6 +743,103 @@ function svg(tag, attrs) {
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   return el;
 }
+
+// ---------- minimap ----------
+
+let minimapPanning = false;
+// Bbox of the diagram content, cached on render so pan/zoom (which fire a lot)
+// don't re-walk every node just to update the viewport indicator.
+let _minimapContentBBox = null;
+
+// The model-space rectangle currently visible in the main canvas.
+function visibleModelRect() {
+  const rect = canvas.getBoundingClientRect();
+  const { x, y, zoom } = diagram.viewport;
+  return { x: -x / zoom, y: -y / zoom, w: rect.width / zoom, h: rect.height / zoom };
+}
+
+// Rebuilds the minimap's simplified content: one rect per node (honouring a
+// custom fill) and a straight line per edge. Cheap stand-ins — no icons,
+// labels or beziers.
+function renderMinimap() {
+  if (!diagram) return;
+  minimapContent.innerHTML = "";
+  for (const e of diagram.edges) {
+    const a = diagram.nodes.find((n) => n.id === e.source);
+    const b = diagram.nodes.find((n) => n.id === e.target);
+    if (!a || !b) continue;
+    const ca = center(a);
+    const cb = center(b);
+    minimapContent.appendChild(svg("line", {
+      class: "minimap-edge", x1: ca.x, y1: ca.y, x2: cb.x, y2: cb.y,
+    }));
+  }
+  for (const n of diagram.nodes) {
+    const { w, h } = nodeSize(n);
+    const r = svg("rect", {
+      class: "minimap-node",
+      x: n.position.x, y: n.position.y, width: w, height: h, rx: 3,
+    });
+    if (n.data.fill) r.setAttribute("fill", n.data.fill);
+    minimapContent.appendChild(r);
+  }
+  _minimapContentBBox = nodesBBox();
+  updateMinimapViewport();
+}
+
+// Fits the minimap's viewBox to the union of the content and the visible rect
+// (so the indicator never falls outside), then positions the indicator.
+function updateMinimapViewport() {
+  if (!diagram || !_minimapContentBBox) return;
+  const c = _minimapContentBBox;
+  const v = visibleModelRect();
+  const minX = Math.min(c.x, v.x);
+  const minY = Math.min(c.y, v.y);
+  const maxX = Math.max(c.x + c.w, v.x + v.w);
+  const maxY = Math.max(c.y + c.h, v.y + v.h);
+  const PAD = 20;
+  const vbX = minX - PAD;
+  const vbY = minY - PAD;
+  const vbW = maxX - minX + PAD * 2;
+  const vbH = maxY - minY + PAD * 2;
+  minimapSvg.setAttribute("viewBox", `${vbX} ${vbY} ${vbW} ${vbH}`);
+  minimapVp.setAttribute("x", v.x);
+  minimapVp.setAttribute("y", v.y);
+  minimapVp.setAttribute("width", v.w);
+  minimapVp.setAttribute("height", v.h);
+}
+
+// Recenters the main viewport on the model point under the cursor. getScreenCTM
+// already folds in the minimap's viewBox + preserveAspectRatio letterboxing.
+function minimapPanTo(evt) {
+  const ctm = minimapSvg.getScreenCTM();
+  if (!ctm) return;
+  const pt = minimapSvg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const p = pt.matrixTransform(ctm.inverse());
+  const rect = canvas.getBoundingClientRect();
+  const zoom = diagram.viewport.zoom || 1;
+  diagram.viewport.x = rect.width / 2 - p.x * zoom;
+  diagram.viewport.y = rect.height / 2 - p.y * zoom;
+  applyViewport();
+}
+
+minimapSvg.addEventListener("mousedown", (evt) => {
+  evt.preventDefault();
+  evt.stopPropagation();
+  minimapPanning = true;
+  minimapPanTo(evt);
+});
+window.addEventListener("mousemove", (evt) => {
+  if (minimapPanning) minimapPanTo(evt);
+});
+window.addEventListener("mouseup", () => {
+  if (minimapPanning) {
+    minimapPanning = false;
+    save();
+  }
+});
 
 function clientToModel(evt) {
   const rect = canvas.getBoundingClientRect();

@@ -92,6 +92,7 @@ main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
 }
 
 .toolbar {
@@ -278,3 +279,32 @@ main {
 }
 .node:hover .conn-handle,
 .node.selected .conn-handle { opacity: 1; }
+
+#minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 200px;
+  height: 150px;
+  background: rgba(19, 20, 24, 0.85);
+  border: 1px solid #2a2b32;
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 50;
+}
+.minimap-node {
+  fill: #374151;
+  stroke: none;
+}
+.minimap-edge {
+  stroke: #4b5563;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+#minimap-vp {
+  fill: rgba(37, 99, 235, 0.18);
+  stroke: #3b82f6;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}

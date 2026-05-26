@@ -200,3 +200,43 @@ test("edges connect their endpoints and crossings are reported", async ({
   const crossings = await countEdgeNodeCrossings(page);
   console.log(`[visual] edge↔node crossings (informational): ${crossings}`);
 });
+
+test("minimap mirrors the nodes and recenters the view on click", async ({
+  page,
+  request,
+}) => {
+  const nodes = [
+    mkNode("a", "rect", "A", -400, -300),
+    mkNode("b", "backend", "B", 400, -300),
+    mkNode("c", "database", "C", -400, 300),
+    mkNode("d", "rect", "D", 400, 300),
+  ];
+  const edges = [mkEdge("e1", "a", "d"), mkEdge("e2", "b", "c")];
+  const id = await createDiagram(request, "minimap", nodes, edges);
+  await openDiagram(page, id);
+  await page.screenshot({ path: `${SHOTS}/09-minimap.png` });
+
+  // One rect per node, and the viewport indicator has a real size.
+  const rectCount = await page.$$eval(
+    "#minimap-content .minimap-node",
+    (els) => els.length,
+  );
+  expect(rectCount).toBe(nodes.length);
+  const vp = await page.$eval("#minimap-vp", (el) => ({
+    w: parseFloat(el.getAttribute("width") || "0"),
+    h: parseFloat(el.getAttribute("height") || "0"),
+  }));
+  expect(vp.w).toBeGreaterThan(0);
+  expect(vp.h).toBeGreaterThan(0);
+
+  // Clicking a corner of the minimap pans the main viewport.
+  const before = await page.$eval("#viewport", (el) => el.getAttribute("transform"));
+  const box = await page.$eval("#minimap", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+  await page.mouse.click(box.x + box.w * 0.2, box.y + box.h * 0.2);
+  await page.waitForTimeout(80);
+  const after = await page.$eval("#viewport", (el) => el.getAttribute("transform"));
+  expect(after).not.toBe(before);
+});
