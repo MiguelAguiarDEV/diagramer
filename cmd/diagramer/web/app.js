@@ -895,11 +895,14 @@ function render() {
     });
     // Invisible thick hit area to make edges easy to click.
     eg.appendChild(svg("path", { class: "edge-hit", d }));
-    eg.appendChild(svg("path", {
-      class: "edge",
-      "marker-end": isSel ? "url(#arrow-selected)" : "url(#arrow)",
-      d,
-    }));
+    // When the target end is bound to a port, the port disc is the terminator,
+    // so skip the arrowhead (it would crowd the disc and the port label).
+    const targetIsPort = e.targetPort && portAnchor(b, e.targetPort);
+    const edgeAttrs = { class: "edge", d };
+    if (!targetIsPort) {
+      edgeAttrs["marker-end"] = isSel ? "url(#arrow-selected)" : "url(#arrow)";
+    }
+    eg.appendChild(svg("path", edgeAttrs));
     if (isSel) {
       const h = edgeHandlePos(e, pa, pb);
       eg.appendChild(svg("circle", {
