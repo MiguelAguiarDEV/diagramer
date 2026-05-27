@@ -333,6 +333,7 @@ const canvas = document.getElementById("canvas");
 const viewportLayer = document.getElementById("viewport");
 const edgesLayer = document.getElementById("edges");
 const nodesLayer = document.getElementById("nodes");
+const edgeLabelsLayer = document.getElementById("edge-labels");
 const addBtn = document.getElementById("add-box");
 const connectBtn = document.getElementById("connect-mode");
 const deleteBtn = document.getElementById("delete");
@@ -1051,6 +1052,7 @@ function edgePath(edge, pa, pb) {
 function render() {
   edgesLayer.innerHTML = "";
   nodesLayer.innerHTML = "";
+  edgeLabelsLayer.innerHTML = "";
 
   for (const e of diagram.edges) {
     const a = diagram.nodes.find((n) => n.id === e.source);
@@ -1083,13 +1085,16 @@ function render() {
     }
     // Edge label sits on the handle position (midpoint by default, curvature
     // offset when the user has dragged the handle).
+    // Labels live in a layer above the nodes so a label that overlaps a node
+    // (long text, tight gap) stays readable instead of being painted under it.
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
       const h = edgeHandlePos(e, pa, pb);
       const midX = h.x;
       const midY = h.y;
       const tw = _measureCtx.measureText(e.label).width + 10;
       const th = 16;
-      eg.appendChild(svg("rect", {
+      const lg = svg("g", { class: "edge-label-group" + (isSel ? " selected" : "") });
+      lg.appendChild(svg("rect", {
         class: "edge-label-bg",
         x: midX - tw / 2, y: midY - th / 2,
         width: tw, height: th, rx: 3,
@@ -1099,7 +1104,8 @@ function render() {
         x: midX, y: midY + 4, "text-anchor": "middle",
       });
       lt.textContent = e.label;
-      eg.appendChild(lt);
+      lg.appendChild(lt);
+      edgeLabelsLayer.appendChild(lg);
     }
     edgesLayer.appendChild(eg);
   }
