@@ -757,6 +757,40 @@ test("sidebar reveals and highlights the active drill path (VS Code style)", asy
   await page.screenshot({ path: `${SHOTS}/24-sidebar-reveal.png` });
 });
 
+test("drag a sidebar diagram onto the canvas places it as a container", async ({ page, request }) => {
+  const lib = await (await request.post("/api/diagrams", { data: { name: "DnDLib", component: true } })).json();
+  const main = await createDiagram(request, "DnDMain", [mkNode("seed", "rect", "Seed", 100, 100)], []);
+  await openDiagram(page, main);
+
+  // Sidebar rows are draggable.
+  const item = page.locator(`#diagram-list li.diagram-item[data-id="${lib.id}"]`).first();
+  await expect(item).toHaveJSProperty("draggable", true);
+
+  // Simulate an HTML5 drag from the sidebar item to the canvas centre via a
+  // shared DataTransfer (Playwright's pointer drag doesn't fire native DnD).
+  await page.evaluate((libId) => {
+    const src = document.querySelector(`#diagram-list li.diagram-item[data-id="${libId}"]`)!;
+    const canvas = document.querySelector("#canvas")!;
+    const r = canvas.getBoundingClientRect();
+    const dt = new DataTransfer();
+    const fire = (el: Element, type: string, cx: number, cy: number) =>
+      el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: cx, clientY: cy }));
+    fire(src, "dragstart", 0, 0);
+    fire(canvas, "dragover", r.left + r.width / 2, r.top + r.height / 2);
+    fire(canvas, "drop", r.left + r.width / 2, r.top + r.height / 2);
+    fire(src, "dragend", 0, 0);
+  }, lib.id);
+
+  // A container node referencing the library is created and persisted.
+  await expect(page.locator("#nodes .node.container")).toHaveCount(1);
+  await expect
+    .poll(async () => {
+      const saved = await (await request.get(`/api/diagrams/${main}`)).json();
+      return saved.nodes.some((n: any) => n.data.subdiagramId === lib.id);
+    })
+    .toBe(true);
+});
+
 test("minimap mirrors the nodes and recenters the view on click", async ({
   page,
   request,

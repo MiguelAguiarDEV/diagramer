@@ -621,6 +621,7 @@ function appendSidebarItem(meta, path, depth) {
   if (path === sidebarActivePath) li.classList.add("active");
   li.dataset.id = meta.id;
   li.dataset.path = path;
+  li.draggable = true; // drag onto the canvas to place it as a container
 
   for (let i = 0; i < depth; i++) {
     const ind = document.createElement("span");
@@ -1485,6 +1486,25 @@ async function addContainer(modelX, modelY) {
   }
 }
 
+// Places an existing diagram into the current one as a container node that
+// references it — used by drag-and-drop from the sidebar. Recursion is allowed,
+// so a diagram may even reference itself.
+async function addContainerRef(subId, name, modelX, modelY) {
+  if (!diagram || !subId) return;
+  pushHistory();
+  diagram.nodes.push({
+    id: uid(),
+    position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
+    data: { label: name || "Subdiagram", subdiagramId: subId },
+  });
+  render();
+  loadSubdiagramPorts();
+  save();
+  await flushSave();
+  await refreshSidebar();
+  setStatus("subdiagram placed");
+}
+
 function kindMenuItems(onPick) {
   return Object.keys(KINDS).map((kind) => ({
     label: KINDS[kind].label,
@@ -2226,6 +2246,43 @@ sidebarListEl.addEventListener("contextmenu", (evt) => {
   items.push({ separator: true });
   items.push({ label: "Delete", action: () => deleteDiagramById(id, meta.name) });
   showContextMenu(evt.clientX, evt.clientY, items);
+});
+
+// Drag a sidebar item onto the canvas to drop it in as a container node.
+const DND_TYPE = "application/x-diagramer-id";
+sidebarListEl.addEventListener("dragstart", (evt) => {
+  const li = evt.target.closest("li.diagram-item");
+  if (!li) { evt.preventDefault(); return; }
+  const id = li.dataset.id;
+  const name = (sidebarById.get(id) || {}).name || "";
+  evt.dataTransfer.setData(DND_TYPE, id);
+  evt.dataTransfer.setData("text/plain", name);
+  evt.dataTransfer.effectAllowed = "copy";
+  li.classList.add("dragging");
+});
+sidebarListEl.addEventListener("dragend", (evt) => {
+  const li = evt.target.closest("li.diagram-item");
+  if (li) li.classList.remove("dragging");
+  canvas.classList.remove("drop-target");
+});
+
+canvas.addEventListener("dragover", (evt) => {
+  if (![...evt.dataTransfer.types].includes(DND_TYPE)) return;
+  evt.preventDefault();
+  evt.dataTransfer.dropEffect = "copy";
+  canvas.classList.add("drop-target");
+});
+canvas.addEventListener("dragleave", (evt) => {
+  if (!canvas.contains(evt.relatedTarget)) canvas.classList.remove("drop-target");
+});
+canvas.addEventListener("drop", (evt) => {
+  const id = evt.dataTransfer.getData(DND_TYPE);
+  if (!id) return;
+  evt.preventDefault();
+  canvas.classList.remove("drop-target");
+  const name = evt.dataTransfer.getData("text/plain") || (sidebarById.get(id) || {}).name || "Subdiagram";
+  const { x, y } = clientToModel(evt);
+  addContainerRef(id, name, x, y);
 });
 
 async function setDiagramComponent(id, component) {
