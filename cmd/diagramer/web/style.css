@@ -260,6 +260,11 @@ main {
   stroke-width: 1;
 }
 .node.container { cursor: pointer; }
+.container-label { font-size: 11px; font-weight: 600; }
+
+/* In-container minimap: a scaled thumbnail of the subdiagram's contents. */
+.sub-preview rect { fill: var(--minimap-node); stroke: none; opacity: 0.85; }
+.sub-preview line { stroke: var(--edge); stroke-width: 1; opacity: 0.55; }
 
 /* Interface ports on container edges + the role badge inside the subdiagram.
    in = entry (green), out = return (blue), dep = dependency (amber).
