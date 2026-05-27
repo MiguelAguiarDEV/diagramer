@@ -1,6 +1,8 @@
 # diagramer
 
-Local-first diagram tool. Single Go binary, vanilla SVG/JS frontend, JSON file persistence. No npm, no bundler, no framework.
+Local-first, AI-first diagram tool. A single Go binary serves a vanilla SVG/JS
+frontend and persists diagrams as JSON files. No npm, no bundler, no framework,
+no database, no cloud.
 
 ## Build & run
 
@@ -17,32 +19,51 @@ Or without building:
 make run
 ```
 
+Diagrams are persisted as JSON under `./data` (configurable via `-data`).
+
+## Features
+
+- **Nodes**: rectangles, geometric shapes (circle, ellipse, rhombus, triangles)
+  and icon stencils (database, backend, frontend, queue, cache, user, cloud).
+  Boxes auto-resize to fit their label.
+- **Edges**: directed, bezier, with optional labels and a drag handle to bend
+  them.
+- **Editing**: inline label edit, multi-select (shift-click + lasso),
+  multi-move, alignment, per-node colors, undo/redo (Ctrl/Cmd+Z).
+- **Canvas**: infinite pan/zoom, a navigation minimap, "Tidy up" auto-layout
+  into columns by edge depth.
+- **Subdiagrams**: a node can contain a whole nested diagram — double-click to
+  drill in, breadcrumb to come back (see below).
+- **Themes**: dark and a warm "vanilla" light mode (toggle in the toolbar,
+  persisted).
+- **Import/Export**: JSON, plus SVG and PNG export.
+- Optimistic save with ETag conflict detection; everything autosaves.
+
+## Subdiagrams
+
+Any node can reference another diagram as its interior, so a box can hold its
+own mini-architecture (composition by reference — the subdiagram is a normal,
+reusable diagram). Right-click a node → **Create subdiagram** to make it a
+container and drill in; double-click a container to open it; use the breadcrumb
+in the title bar to navigate back out.
+
 ## Tests
 
 ```sh
-make test       # Go unit tests
-make test-e2e   # Playwright layout tests (builds the binary, drives a browser)
+make test       # Go unit/integration tests
+make test-e2e   # Playwright layout + behavior tests (builds the binary, drives a browser)
 ```
 
 The E2E suite (`tests/`) sets diagrams up through the REST API, renders them in
-a real browser, and runs geometric assertions (no overlap, labels fit inside
-their shape, tidy-up produces clean columns, equilateral triangles, …). It also
-writes screenshots to `tests/screenshots/` for visual review.
-
-## MVP controls
-
-- **+ Box** — adds a box at the canvas center; prompts for text.
-- **Connect** — toggles connect mode; click a source box, then a target box.
-- **Delete** — deletes the selected box (and its edges).
-- Click a box to select it. Drag to move. Click empty canvas to deselect.
-
-Diagrams are persisted as JSON under `./data` (configurable via `-data`).
+a real browser, and runs geometric assertions (no overlap, labels fit their
+shape, tidy-up columns, equilateral triangles, theme switch, subdiagram
+navigation, …). It also writes screenshots to `tests/screenshots/`.
 
 ## MCP mode (let an AI edit your diagrams)
 
 The same binary doubles as an [MCP](https://modelcontextprotocol.io) server over
-stdio. Run it with `-mcp` and any MCP client (Claude Desktop, etc.) can list,
-create, and edit diagrams via tools.
+stdio. Run it with `-mcp` and any MCP client (Claude Desktop, etc.) can build
+and edit diagrams via tools.
 
 ```sh
 ./diagramer -mcp -data ./data
@@ -66,7 +87,14 @@ modifies a diagram you can refresh the browser tab to see the result.
 
 Exposed tools:
 `list_diagrams`, `get_diagram`, `create_diagram`, `rename_diagram`,
-`delete_diagram`, `add_node`, `update_node`, `delete_node`,
-`add_edge`, `update_edge`, `delete_edge`.
+`delete_diagram`, `add_node`, `update_node`, `delete_node`, `add_edge`,
+`update_edge`, `delete_edge`, `create_subdiagram`. Node tools accept optional
+`fill`/`stroke`; `update_node` also accepts `subdiagram_id`. To build nested
+architecture: `add_node` a container, `create_subdiagram` to link a fresh
+diagram to it, then `add_node`/`add_edge` into the returned subdiagram ID.
 
-See [docs/PRD.md](docs/PRD.md), [docs/architecture.md](docs/architecture.md), [docs/tasks.md](docs/tasks.md).
+## Docs
+
+See [CLAUDE.md](CLAUDE.md) for an orientation map, and
+[docs/PRD.md](docs/PRD.md), [docs/architecture.md](docs/architecture.md),
+[docs/tasks.md](docs/tasks.md).

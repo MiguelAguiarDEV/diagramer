@@ -1,5 +1,11 @@
 # Tasks — diagramer v1
 
+> **Histórico.** Este es el plan original de v1 (con frontend React/Vite, luego
+> reemplazado por vanilla SVG/JS). Se conserva como registro de cómo arrancó el
+> proyecto; **no refleja el estado actual** ni el stack vigente. Para el estado
+> real y la visión, ver [PRD.md](PRD.md), [architecture.md](architecture.md) y
+> [../CLAUDE.md](../CLAUDE.md).
+
 Cada fase es entregable y testeable por separado. No empezar la siguiente sin que la anterior compile y pase tests.
 
 ## Fase 0 — Bootstrapping
