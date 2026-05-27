@@ -463,6 +463,38 @@ test("container shows a scaled minimap of its inside", async ({ page, request })
   expect(lines).toBe(2); // one per inner edge
 });
 
+test("renaming a container port from outside writes through to the inside", async ({
+  page,
+  request,
+}) => {
+  const subId = await createDiagram(
+    request,
+    "Renamable",
+    [{ id: "i1", position: { x: 0, y: 0 }, data: { label: "input 1", port: "in" } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  const parentId = await createDiagram(
+    request,
+    "Outer",
+    [{ id: "box", kind: "rect", position: { x: 220, y: 150 }, data: { label: "Svc", subdiagramId: subId } }],
+    [],
+    { x: 120, y: 120, zoom: 1 },
+  );
+  await openDiagram(page, parentId);
+  await page.waitForSelector(".node.container .port.port-in circle", { timeout: 5000 });
+  await page.waitForTimeout(150);
+
+  await page.locator(".node.container .port.port-in circle").dblclick();
+  await page.waitForSelector("#node-editor:not([hidden])", { timeout: 3000 });
+  await page.fill("#node-editor", "amount");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+
+  const sd = await (await request.get(`/api/diagrams/${subId}`)).json();
+  expect(sd.nodes[0].data.label).toBe("amount");
+});
+
 test("dragging from a container port wires an edge bound to that port", async ({
   page,
   request,

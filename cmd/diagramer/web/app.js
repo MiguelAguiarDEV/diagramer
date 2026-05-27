@@ -1409,6 +1409,25 @@ function positionEditor() {
     return;
   }
 
+  if (editing.kind === "port") {
+    const node = diagram.nodes.find((n) => n.id === editing.containerId);
+    const pa = node && portAnchor(node, editing.portId);
+    if (!pa) return;
+    const W = 100, H = 22;
+    const sx = canvasRect.left + pa.x * zoom + vx;
+    const sy = canvasRect.top + pa.y * zoom + vy;
+    let left, top;
+    if (pa.side === "left") { left = sx - W - 8; top = sy - H / 2; }
+    else if (pa.side === "right") { left = sx + 8; top = sy - H / 2; }
+    else { left = sx - W / 2; top = sy - H - 8; }
+    editorEl.style.left = left + "px";
+    editorEl.style.top = top + "px";
+    editorEl.style.width = W + "px";
+    editorEl.style.height = H + "px";
+    editorEl.style.fontSize = "12px";
+    return;
+  }
+
   // Edge: position over the handle (or the anchor midpoint when straight).
   const edge = diagram.edges.find((e) => e.id === editing.id);
   if (!edge) return;
@@ -1454,10 +1473,54 @@ function startEdit(kind, id) {
   render();
 }
 
+// Inline-edits a container port's name from outside; writes through to the
+// interface node inside the subdiagram (the single source of truth).
+function startEditPort(containerId, portId) {
+  const node = diagram.nodes.find((n) => n.id === containerId);
+  const ports = node && subPorts.get(node.data.subdiagramId);
+  const port = ports && ports.find((p) => p.id === portId);
+  if (!port) return;
+  selectedIds.clear();
+  selectedEdgeId = null;
+  editing = { kind: "port", containerId, portId };
+  editorEl.value = port.label || "";
+  dragging = null;
+  editorEl.hidden = false;
+  positionEditor();
+  requestAnimationFrame(() => { editorEl.focus(); editorEl.select(); });
+  render();
+}
+
+async function setPortLabel(containerId, portId, label) {
+  const node = diagram.nodes.find((n) => n.id === containerId);
+  if (!node || !node.data.subdiagramId) return;
+  try {
+    const sd = await api("GET", `/api/diagrams/${node.data.subdiagramId}`);
+    const inner = sd.nodes.find((n) => n.id === portId);
+    if (!inner || (inner.data.label || "") === label) return;
+    inner.data.label = label;
+    await api("PUT", `/api/diagrams/${node.data.subdiagramId}`, {
+      name: sd.name, nodes: sd.nodes, edges: sd.edges, viewport: sd.viewport,
+    });
+    await loadSubdiagramPorts();
+    setStatus("port renamed");
+  } catch (e) {
+    setStatus("rename failed");
+    console.error(e);
+  }
+}
+
 function commitEdit(value) {
   if (!editing) return;
   const v = (value || "").trim();
   let changed = false;
+  if (editing.kind === "port") {
+    const { containerId, portId } = editing;
+    editing = null;
+    editorEl.hidden = true;
+    setPortLabel(containerId, portId, v); // async; refreshes on its own
+    return;
+  }
   if (editing.kind === "node") {
     const node = diagram.nodes.find((n) => n.id === editing.id);
     // Empty input is allowed — node renders with no label.
@@ -1524,11 +1587,16 @@ canvas.addEventListener("mousedown", (evt) => {
     return;
   }
 
-  // Dragging from a container port starts an edge anchored at that port.
+  // A port disc: double-click renames it (writes through to the inner node),
+  // single drag starts an edge anchored at that port.
   const portEl = evt.target.closest(".port");
   if (portEl) {
     evt.stopPropagation();
     const containerEl = portEl.closest(".node");
+    if (evt.detail >= 2) {
+      startEditPort(containerEl.dataset.id, portEl.dataset.portId);
+      return;
+    }
     pendingEdge = {
       sourceId: containerEl.dataset.id,
       sourcePort: portEl.dataset.portId,
