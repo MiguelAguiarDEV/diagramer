@@ -631,8 +631,10 @@ test("container node opens its subdiagram and breadcrumb navigates back", async 
   expect(await page.$eval(".title .crumb.current", (el) => el.textContent)).toBe("Inside");
   expect(await page.$eval(".title .crumb:not(.current)", (el) => el.textContent)).toBe("System");
 
-  // Clicking the ancestor crumb returns to the parent.
-  await page.click(".title .crumb:not(.current)");
+  // Open the breadcrumb tree and click the ancestor to return to the parent.
+  await page.locator("#diagram-name").click();
+  await expect(page.locator("#breadcrumb-tree")).toBeVisible();
+  await page.locator(`#breadcrumb-tree .bc-item[data-id="${parentId}"] .name`).click();
   await page.waitForSelector('#nodes .node[data-id="box"]', { timeout: 5000 });
   const ancestorCrumbs = await page.$$eval(
     ".title .crumb:not(.current)",
@@ -725,8 +727,8 @@ test("fit view frames an off-center diagram inside the canvas", async ({ page, r
   expect(nb!.y + nb!.height).toBeLessThanOrEqual(cb!.y + cb!.height + 1);
 });
 
-test("system map shows the containment graph and jumps on click", async ({ page, request }) => {
-  // Build: System ⊃ {PaymentsSvc ⊃ Ledger, AuthSvc}.
+test("breadcrumb opens a containment tree and navigates from it", async ({ page, request }) => {
+  // System ⊃ {PaymentsSvc ⊃ Ledger, AuthSvc}.
   const ledger = await (await request.post("/api/diagrams", { data: { name: "Ledger", component: true } })).json();
   const payments = await (await request.post("/api/diagrams", { data: { name: "PaymentsSvc", component: true } })).json();
   await request.put(`/api/diagrams/${payments.id}`, {
@@ -744,21 +746,22 @@ test("system map shows the containment graph and jumps on click", async ({ page,
   );
   await openDiagram(page, system);
 
-  // Open the map (toolbar button).
-  await page.locator("#map-view").click();
-  await expect(page.locator("#hierarchy-overlay")).toBeVisible();
+  // Click the title → tree rooted at System (current) with its children.
+  await page.locator("#diagram-name").click();
+  await expect(page.locator("#breadcrumb-tree")).toBeVisible();
+  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${system}"]`)).toHaveClass(/current/);
+  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${payments.id}"]`)).toBeVisible();
+  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${auth.id}"]`)).toBeVisible();
+  // Ledger is one level deeper — hidden until PaymentsSvc is expanded.
+  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${ledger.id}"]`)).toHaveCount(0);
+  await page.locator(`#breadcrumb-tree .bc-item[data-id="${payments.id}"] .caret`).click();
+  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${ledger.id}"]`)).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/24-breadcrumb-tree.png` });
 
-  // The four diagrams of this system each appear as a node (the map shows the
-  // whole library, so other tests' diagrams may coexist — assert by id).
-  for (const id of [system, payments.id, auth.id, ledger.id]) {
-    await expect(page.locator(`#hierarchy-content .hier-node[data-id="${id}"]`)).toHaveCount(1);
-  }
-  await expect(page.locator(`#hierarchy-content .hier-node[data-id="${system}"]`)).toHaveClass(/current/);
-  await page.screenshot({ path: `${SHOTS}/24-system-map.png` });
-
-  // Clicking PaymentsSvc jumps there and closes the map.
-  await page.locator(`#hierarchy-content .hier-node[data-id="${payments.id}"]`).click();
-  await expect(page.locator("#hierarchy-overlay")).toBeHidden();
+  // Click PaymentsSvc → navigate; breadcrumb becomes System › PaymentsSvc.
+  await page.locator(`#breadcrumb-tree .bc-item[data-id="${payments.id}"] .name`).click();
+  await expect(page.locator("#breadcrumb-tree")).toBeHidden();
+  await expect(page.locator("#diagram-name")).toContainText("System");
   await expect(page.locator("#diagram-name")).toContainText("PaymentsSvc");
 });
 

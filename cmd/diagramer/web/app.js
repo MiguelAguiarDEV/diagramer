@@ -347,6 +347,7 @@ const tidyBtn = document.getElementById("tidy");
 const navBackBtn = document.getElementById("nav-back");
 const navFwdBtn = document.getElementById("nav-fwd");
 const fitViewBtn = document.getElementById("fit-view");
+const breadcrumbTreeEl = document.getElementById("breadcrumb-tree");
 const minimapSvg = document.getElementById("minimap");
 const minimapContent = document.getElementById("minimap-content");
 const minimapVp = document.getElementById("minimap-vp");
@@ -652,6 +653,7 @@ async function handleConflict() {
 
 async function loadDiagram(id, opts = {}) {
   await flushSave();
+  if (!breadcrumbTreeEl.hidden) closeBreadcrumbTree();
   // Root navigation (sidebar, new, import, popstate) clears the drill-down
   // trail; only enter/crumb navigation keeps it (they manage it themselves).
   if (!opts.keepBreadcrumb) breadcrumb = [];
@@ -791,6 +793,12 @@ function renderBreadcrumb() {
   cur.className = "crumb current";
   cur.textContent = diagram ? diagram.name : "";
   diagramNameEl.appendChild(cur);
+  // A caret hints the title is clickable → opens the containment tree.
+  const caret = document.createElement("span");
+  caret.className = "crumb-caret";
+  caret.textContent = "▾";
+  diagramNameEl.appendChild(caret);
+  diagramNameEl.classList.add("clickable");
 }
 
 // Navigate into a container node's referenced diagram, pushing the current
@@ -829,13 +837,108 @@ async function createSubdiagram(nodeId) {
   }
 }
 
-diagramNameEl.addEventListener("click", (evt) => {
-  const c = evt.target.closest(".crumb:not(.current)");
-  if (!c) return;
-  const id = c.dataset.id;
-  const idx = breadcrumb.findIndex((b) => b.id === id);
-  if (idx >= 0) breadcrumb = breadcrumb.slice(0, idx);
-  loadDiagram(id, { push: true, keepBreadcrumb: true });
+// Clicking the title (breadcrumb) opens a containment tree: the current drill
+// path rooted at its top, with each level's child subdiagrams, to navigate in
+// one click. Built from DiagramMeta.subdiagrams — a flat per-id lookup expanded
+// lazily by path, so recursive references just re-list and never loop.
+let bcMetas = new Map();
+let bcExpanded = new Set();
+let bcRootId = null;
+
+diagramNameEl.addEventListener("click", () => {
+  if (breadcrumbTreeEl.hidden) openBreadcrumbTree();
+  else closeBreadcrumbTree();
+});
+
+async function openBreadcrumbTree() {
+  if (!diagram) return;
+  let list = [];
+  try { list = (await api("GET", "/api/diagrams")) || []; }
+  catch (e) { setStatus("tree failed"); console.error(e); return; }
+  bcMetas = new Map(list.map((m) => [m.id, m]));
+  // Path = ancestors (breadcrumb) + current; root is its top.
+  const pathIds = [...breadcrumb.map((b) => b.id), diagram.id];
+  bcRootId = pathIds[0];
+  // Auto-expand every prefix so the whole current path is open.
+  bcExpanded = new Set();
+  for (let i = 0; i < pathIds.length; i++) {
+    bcExpanded.add(pathIds.slice(0, i + 1).join("/"));
+  }
+  renderBreadcrumbTree();
+  breadcrumbTreeEl.hidden = false;
+  positionBreadcrumbTree();
+}
+
+function closeBreadcrumbTree() {
+  breadcrumbTreeEl.hidden = true;
+}
+
+function positionBreadcrumbTree() {
+  const r = diagramNameEl.getBoundingClientRect();
+  const parent = breadcrumbTreeEl.offsetParent || document.querySelector("main");
+  const pr = parent.getBoundingClientRect();
+  breadcrumbTreeEl.style.left = r.left - pr.left + "px";
+  breadcrumbTreeEl.style.top = r.bottom - pr.top + 4 + "px";
+}
+
+function renderBreadcrumbTree() {
+  breadcrumbTreeEl.innerHTML = "";
+  const root = bcMetas.get(bcRootId);
+  if (root) appendBcItem(root, bcRootId, 0);
+}
+
+function appendBcItem(meta, path, depth) {
+  const item = document.createElement("div");
+  item.className = "bc-item" + (meta.id === (diagram && diagram.id) ? " current" : "");
+  item.dataset.id = meta.id;
+  item.dataset.path = path;
+  item.style.paddingLeft = 8 + depth * 14 + "px";
+
+  const kids = (meta.subdiagrams || []).filter((id) => bcMetas.has(id));
+  const caret = document.createElement("span");
+  caret.className = "caret" + (kids.length ? "" : " leaf");
+  caret.textContent = kids.length ? (bcExpanded.has(path) ? "▾" : "▸") : "";
+  item.appendChild(caret);
+
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = meta.name;
+  name.title = meta.name;
+  item.appendChild(name);
+  breadcrumbTreeEl.appendChild(item);
+
+  if (kids.length && bcExpanded.has(path)) {
+    for (const cid of kids) {
+      appendBcItem(bcMetas.get(cid), path + "/" + cid, depth + 1);
+    }
+  }
+}
+
+breadcrumbTreeEl.addEventListener("click", async (evt) => {
+  const item = evt.target.closest(".bc-item");
+  if (!item) return;
+  // Caret toggles a branch (lazy, recursion-safe).
+  if (evt.target.classList.contains("caret") && !evt.target.classList.contains("leaf")) {
+    const p = item.dataset.path;
+    if (bcExpanded.has(p)) bcExpanded.delete(p);
+    else bcExpanded.add(p);
+    renderBreadcrumbTree();
+    return;
+  }
+  // Navigate: the tree path is the new drill path (ancestors → target).
+  const path = item.dataset.path.split("/");
+  const targetId = path[path.length - 1];
+  closeBreadcrumbTree();
+  if (targetId === (diagram && diagram.id)) return;
+  breadcrumb = path.slice(0, -1).map((id) => ({ id, name: (bcMetas.get(id) || {}).name || "…" }));
+  await loadDiagram(targetId, { push: true, keepBreadcrumb: true });
+});
+
+// Click outside the dropdown (but not on the title, which toggles) closes it.
+document.addEventListener("mousedown", (evt) => {
+  if (breadcrumbTreeEl.hidden) return;
+  if (breadcrumbTreeEl.contains(evt.target) || diagramNameEl.contains(evt.target)) return;
+  closeBreadcrumbTree();
 });
 
 // ---------- undo / redo ----------
@@ -1321,180 +1424,6 @@ window.addEventListener("mouseup", () => {
     save();
   }
 });
-
-// ---------- hierarchy map (system overview) ----------
-//
-// A separate overlay that draws the whole containment graph: one node per
-// diagram, a directed edge per "contains" relation (from DiagramMeta.subdiagrams,
-// so no full diagrams are fetched). It's a flat graph — each diagram appears
-// once — so recursive references are just edges/cycles and never loop. Click a
-// node to jump there; pan with drag, zoom with the wheel.
-
-const hierOverlay = document.getElementById("hierarchy-overlay");
-const hierSvg = document.getElementById("hierarchy-svg");
-const hierContent = document.getElementById("hierarchy-content");
-const hierCloseBtn = document.getElementById("hierarchy-close");
-const mapViewBtn = document.getElementById("map-view");
-
-let hierView = { x: 0, y: 0, zoom: 1 };
-let hierPanning = null;
-
-// Lays diagrams into vertical levels by longest path from a root (a diagram
-// nobody contains). Cycles are broken by a visiting guard; anything left
-// unleveled (pure cycle / orphan) is stacked below.
-function layoutHierarchy(metas) {
-  const byId = new Map(metas.map((m) => [m.id, m]));
-  const children = new Map();
-  const parents = new Map();
-  for (const m of metas) { children.set(m.id, []); parents.set(m.id, []); }
-  for (const m of metas) {
-    for (const c of m.subdiagrams || []) {
-      if (byId.has(c) && c !== m.id) {
-        children.get(m.id).push(c);
-        parents.get(c).push(m.id);
-      }
-    }
-  }
-  const level = new Map();
-  const visiting = new Set();
-  const longestFromRoot = (id) => {
-    if (level.has(id)) return level.get(id);
-    if (visiting.has(id)) return 0; // cycle: don't recurse forever
-    visiting.add(id);
-    let d = 0;
-    for (const p of parents.get(id)) d = Math.max(d, longestFromRoot(p) + 1);
-    visiting.delete(id);
-    level.set(id, d);
-    return d;
-  };
-  for (const m of metas) longestFromRoot(m.id);
-
-  // Bucket by level, then place left-to-right within each level.
-  const buckets = new Map();
-  for (const m of metas) {
-    const l = level.get(m.id) || 0;
-    if (!buckets.has(l)) buckets.set(l, []);
-    buckets.get(l).push(m);
-  }
-  const NODE_H = 34, V_GAP = 64, H_GAP = 28, PAD = 24;
-  const nodeW = (m) => Math.max(96, Math.min(220, (m.name || "untitled").length * 7.2 + 28));
-  const placed = new Map();
-  let maxRight = 0;
-  for (const l of [...buckets.keys()].sort((a, b) => a - b)) {
-    let x = PAD;
-    const y = PAD + l * (NODE_H + V_GAP);
-    for (const m of buckets.get(l)) {
-      const w = nodeW(m);
-      placed.set(m.id, { m, x, y, w, h: NODE_H });
-      x += w + H_GAP;
-    }
-    maxRight = Math.max(maxRight, x - H_GAP + PAD);
-  }
-  const maxBottom = PAD + ([...buckets.keys()].length) * (NODE_H + V_GAP);
-  return { placed, children, bbox: { w: maxRight, h: maxBottom } };
-}
-
-function renderHierarchy(metas) {
-  hierContent.innerHTML = "";
-  const { placed, children, bbox } = layoutHierarchy(metas);
-
-  // Edges first (under nodes).
-  for (const [pid, kids] of children) {
-    const a = placed.get(pid);
-    if (!a) continue;
-    for (const cid of kids) {
-      const b = placed.get(cid);
-      if (!b) continue;
-      const x1 = a.x + a.w / 2, y1 = a.y + a.h;
-      const x2 = b.x + b.w / 2, y2 = b.y;
-      const self = pid === cid;
-      hierContent.appendChild(svg("path", {
-        class: "hier-edge",
-        d: self
-          ? `M${x1},${y1} c 40,30 40,-${a.h + 30} 0,-${a.h}` // self-loop
-          : `M${x1},${y1} C ${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`,
-        "marker-end": "url(#hier-arrow)",
-      }));
-    }
-  }
-
-  // Nodes.
-  for (const { m, x, y, w, h } of placed.values()) {
-    const g = svg("g", { class: "hier-node" + (m.id === (diagram && diagram.id) ? " current" : "") });
-    g.dataset.id = m.id;
-    g.appendChild(svg("rect", { x, y, width: w, height: h, rx: 6 }));
-    const t = svg("text", { x: x + w / 2, y: y + h / 2, "text-anchor": "middle", "dominant-baseline": "central" });
-    t.textContent = m.name || "untitled";
-    g.appendChild(t);
-    hierContent.appendChild(g);
-  }
-  return bbox;
-}
-
-function applyHierView() {
-  hierContent.setAttribute("transform", `translate(${hierView.x},${hierView.y}) scale(${hierView.zoom})`);
-}
-
-async function openHierarchy() {
-  let metas = [];
-  try { metas = (await api("GET", "/api/diagrams")) || []; }
-  catch (e) { setStatus("map failed"); console.error(e); return; }
-  const bbox = renderHierarchy(metas);
-  hierOverlay.hidden = false;
-  // Fit the graph into the overlay svg.
-  const rect = hierSvg.getBoundingClientRect();
-  const zoom = Math.max(0.2, Math.min(1.4, Math.min(rect.width / (bbox.w || 1), rect.height / (bbox.h || 1))));
-  hierView.zoom = zoom;
-  hierView.x = (rect.width - bbox.w * zoom) / 2;
-  hierView.y = Math.max(12, (rect.height - bbox.h * zoom) / 2);
-  applyHierView();
-}
-
-function closeHierarchy() {
-  hierOverlay.hidden = true;
-}
-
-mapViewBtn.addEventListener("click", openHierarchy);
-hierCloseBtn.addEventListener("click", closeHierarchy);
-
-hierOverlay.addEventListener("click", (evt) => {
-  // Click on the dimmed backdrop (the overlay itself) closes.
-  if (evt.target === hierOverlay) closeHierarchy();
-});
-
-hierContent.addEventListener("click", async (evt) => {
-  const g = evt.target.closest(".hier-node");
-  if (!g) return;
-  const id = g.dataset.id;
-  closeHierarchy();
-  if (id !== (diagram && diagram.id)) await loadDiagram(id, { push: true });
-});
-
-hierSvg.addEventListener("mousedown", (evt) => {
-  if (evt.target.closest(".hier-node")) return; // let clicks through
-  hierPanning = { x: evt.clientX, y: evt.clientY, ox: hierView.x, oy: hierView.y };
-});
-window.addEventListener("mousemove", (evt) => {
-  if (!hierPanning) return;
-  hierView.x = hierPanning.ox + (evt.clientX - hierPanning.x);
-  hierView.y = hierPanning.oy + (evt.clientY - hierPanning.y);
-  applyHierView();
-});
-window.addEventListener("mouseup", () => { hierPanning = null; });
-
-hierSvg.addEventListener("wheel", (evt) => {
-  evt.preventDefault();
-  const rect = hierSvg.getBoundingClientRect();
-  const cx = evt.clientX - rect.left, cy = evt.clientY - rect.top;
-  const old = hierView.zoom;
-  const next = Math.max(0.15, Math.min(3, old * (evt.deltaY < 0 ? 1.1 : 1 / 1.1)));
-  if (next === old) return;
-  const mx = (cx - hierView.x) / old, my = (cy - hierView.y) / old;
-  hierView.x = cx - mx * next;
-  hierView.y = cy - my * next;
-  hierView.zoom = next;
-  applyHierView();
-}, { passive: false });
 
 // ---------- theme ----------
 
@@ -2204,11 +2133,6 @@ window.addEventListener("keydown", (evt) => {
     fitView();
     return;
   }
-  if (!mod && !evt.altKey && key === "m") {
-    evt.preventDefault();
-    if (hierOverlay.hidden) openHierarchy(); else closeHierarchy();
-    return;
-  }
 
   if (evt.key === "Delete" || evt.key === "Backspace") {
     if (selectedIds.size > 0 || selectedEdgeId) {
@@ -2219,7 +2143,7 @@ window.addEventListener("keydown", (evt) => {
   }
 
   if (evt.key === "Escape") {
-    if (!hierOverlay.hidden) { closeHierarchy(); return; }
+    if (!breadcrumbTreeEl.hidden) { closeBreadcrumbTree(); return; }
     if (!ctxMenuEl.hidden) { hideContextMenu(); return; }
     if (editing) { cancelEdit(); return; }
     if (pendingEdge) { pendingEdge = null; syncPendingEdge(); return; }
