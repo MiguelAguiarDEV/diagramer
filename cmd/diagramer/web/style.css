@@ -271,7 +271,16 @@ main {
    in/dep render hollow ("plug here"); out is filled ("produced here"). */
 .port circle { stroke-width: 2; pointer-events: all; cursor: crosshair; }
 .port circle:hover { stroke-width: 3; }
-.port text { font: 10px system-ui, sans-serif; fill: var(--text-muted); pointer-events: none; }
+.port text {
+  font: 10px system-ui, sans-serif;
+  fill: var(--text-muted);
+  pointer-events: none;
+  /* Background-colored halo so an edge passing behind stays out of the text. */
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
 .port.port-in circle  { fill: var(--bg); stroke: #22c55e; }
 .port.port-dep circle { fill: var(--bg); stroke: #f59e0b; }
 .port.port-out circle { fill: #3b82f6; stroke: var(--node-fill); }
