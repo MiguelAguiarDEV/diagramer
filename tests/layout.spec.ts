@@ -663,7 +663,7 @@ test("sidebar groups diagrams vs subdiagrams, expands the contains tree, and con
 
   // Expanding "Main" reveals "Auth" nested under it (so Auth now appears twice:
   // in the library and nested under Main).
-  await page.locator(`#diagram-list li.diagram-item[data-id="${main}"] .caret`).click();
+  await page.locator(`#diagram-list li.diagram-item[data-id="${main}"] .sb-chevron`).click();
   const authCount = await page.$$eval("#diagram-list li.diagram-item", (els) =>
     els.filter((e) => e.querySelector(".name")!.textContent === "Auth").length,
   );

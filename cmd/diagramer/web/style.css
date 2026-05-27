@@ -4,41 +4,42 @@
    the renderer/tests; the surrounding "chrome" tokens drive the UI styling. */
 :root {
   /* surfaces & lines */
-  --bg: #0b0d10;
-  --surface: #111419;
-  --surface-bar: #111419;
-  --surface-2: #171b21;
-  --surface-btn: #1b1f26;
-  --surface-btn-hover: #232831;
-  --surface-hover: #191d24;
-  --border: #20252d;
-  --border-btn: #2a313b;
+  --bg: #0c0e13;
+  --surface: #12141a;
+  --surface-bar: #12141a;
+  --surface-2: #181b22;
+  --surface-btn: #1c2027;
+  --surface-btn-hover: #252a33;
+  --surface-hover: #1a1e25;
+  --border: #232830;
+  --border-btn: #2c323c;
+  --tree-guide: #282d36;
   /* text */
-  --text: #e6e9ef;
-  --text-muted: #9298a3;
-  --text-list: #c4c9d2;
-  --text-faint: #636a75;
+  --text: #e7eaf0;
+  --text-muted: #969cab;
+  --text-list: #c2c8d4;
+  --text-faint: #646b78;
   /* accent */
   --accent: #6366f1;
-  --accent-hover: #7c7ff6;
+  --accent-hover: #797cf7;
   --accent-text: #ffffff;
-  --active-bg: rgba(99, 102, 241, 0.16);
+  --active-bg: rgba(99, 102, 241, 0.18);
   --active-text: #eef0ff;
   /* diagram content */
   --node-fill: #1f2937;
   --node-stroke: #3a4452;
   --node-stroke-hover: #818cf8;
-  --node-text: #e6e9ef;
+  --node-text: #e7eaf0;
   --node-icon: #a5b4fc;
   --connect: #f59e0b;
   --edge: #5b626d;
   --edge-hover: #818cf8;
-  --edge-label-bg: #0b0d10;
+  --edge-label-bg: #0c0e13;
   --handle-fill: #ffffff;
-  --dot: #191d24;
+  --dot: #1b1f27;
   --danger: #f05252;
   --lasso-fill: rgba(99, 102, 241, 0.12);
-  --minimap-bg: rgba(17, 20, 25, 0.9);
+  --minimap-bg: rgba(18, 20, 26, 0.9);
   --minimap-node: #3a4452;
   --minimap-vp-fill: rgba(99, 102, 241, 0.18);
   --shadow: rgba(0, 0, 0, 0.5);
@@ -49,43 +50,45 @@
   --shadow-pop: 0 12px 32px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
 }
 
+/* Light = warm vanilla: cream surfaces, soft caramel accent. */
 :root[data-theme="light"] {
-  --bg: #ffffff;
-  --surface: #fbfbfc;
-  --surface-bar: #ffffff;
-  --surface-2: #ffffff;
-  --surface-btn: #f4f5f7;
-  --surface-btn-hover: #eaecef;
-  --surface-hover: #f3f4f6;
-  --border: #e7e9ee;
-  --border-btn: #dfe2e8;
-  --text: #1b1f24;
-  --text-muted: #6b7280;
-  --text-list: #3a3f47;
-  --text-faint: #aab0b8;
-  --accent: #6366f1;
-  --accent-hover: #5457e0;
-  --accent-text: #ffffff;
-  --active-bg: rgba(99, 102, 241, 0.12);
-  --active-text: #312e81;
-  --node-fill: #ffffff;
-  --node-stroke: #d3d7de;
-  --node-stroke-hover: #6366f1;
-  --node-text: #1b1f24;
-  --node-icon: #6366f1;
-  --connect: #ea8a0b;
-  --edge: #b6bcc6;
-  --edge-hover: #6366f1;
-  --edge-label-bg: #ffffff;
-  --handle-fill: #ffffff;
-  --dot: #ebedf1;
-  --danger: #e02424;
-  --lasso-fill: rgba(99, 102, 241, 0.1);
-  --minimap-bg: rgba(255, 255, 255, 0.92);
-  --minimap-node: #d3d7de;
-  --minimap-vp-fill: rgba(99, 102, 241, 0.16);
-  --shadow: rgba(17, 24, 39, 0.12);
-  --shadow-pop: 0 12px 32px -8px rgba(17, 24, 39, 0.18), 0 0 0 1px var(--border);
+  --bg: #f6efe1;
+  --surface: #fbf5ea;
+  --surface-bar: #fbf5ea;
+  --surface-2: #fffaf1;
+  --surface-btn: #efe6d4;
+  --surface-btn-hover: #e7dcc6;
+  --surface-hover: #f0e7d6;
+  --border: #e4d9c2;
+  --border-btn: #d9ccb0;
+  --tree-guide: #e6dcc6;
+  --text: #4b4233;
+  --text-muted: #8c7f66;
+  --text-list: #5b5243;
+  --text-faint: #ab9f86;
+  --accent: #c87f4d;
+  --accent-hover: #b86f3d;
+  --accent-text: #fffaf2;
+  --active-bg: rgba(200, 127, 77, 0.16);
+  --active-text: #7c4a25;
+  --node-fill: #fffaf0;
+  --node-stroke: #cdbd9a;
+  --node-stroke-hover: #c87f4d;
+  --node-text: #4b4233;
+  --node-icon: #b3793b;
+  --connect: #d98324;
+  --edge: #b39e78;
+  --edge-hover: #c87f4d;
+  --edge-label-bg: #f6efe1;
+  --handle-fill: #fffaf0;
+  --dot: #e7dcc4;
+  --danger: #c0492f;
+  --lasso-fill: rgba(200, 127, 77, 0.14);
+  --minimap-bg: rgba(251, 245, 234, 0.92);
+  --minimap-node: #d9c9a7;
+  --minimap-vp-fill: rgba(200, 127, 77, 0.2);
+  --shadow: rgba(120, 100, 70, 0.22);
+  --shadow-pop: 0 12px 30px -8px rgba(120, 95, 60, 0.28), 0 0 0 1px var(--border);
 }
 
 * { box-sizing: border-box; }
@@ -143,8 +146,8 @@ body {
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  background: linear-gradient(135deg, var(--accent), #a5b4fc);
-  box-shadow: 0 1px 4px -1px var(--accent);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #ffffff));
+  box-shadow: 0 1px 5px -1px var(--accent);
 }
 .sidebar-head button {
   display: inline-flex;
@@ -167,18 +170,17 @@ body {
 #diagram-list {
   list-style: none;
   margin: 0;
-  padding: 6px 8px 12px;
+  padding: 4px 6px 12px;
   overflow-y: auto;
   flex: 1 1 auto;
 }
 #diagram-list li.diagram-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 0 6px 0 6px;
   margin: 1px 0;
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text-list);
@@ -190,6 +192,42 @@ body {
   color: var(--active-text);
   font-weight: 500;
 }
+/* Indent guides: one slot per ancestor level, each drawing a faint vertical
+   rule — the rows stack them into continuous lines (VS Code explorer). */
+#diagram-list .indent {
+  flex: 0 0 13px;
+  align-self: stretch;
+  position: relative;
+}
+#diagram-list .indent::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: var(--tree-guide);
+}
+#diagram-list .sb-chevron {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+  transition: transform 0.12s ease, color 0.1s ease;
+}
+#diagram-list .sb-chevron.open { transform: rotate(90deg); }
+#diagram-list .sb-chevron.leaf { visibility: hidden; }
+#diagram-list li.diagram-item:hover .sb-chevron:not(.leaf) { color: var(--text); }
+#diagram-list .sb-typeicon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0 7px 0 1px;
+}
+#diagram-list .sb-typeicon.component { color: var(--accent); }
+#diagram-list .sb-typeicon.diagram { color: var(--text-muted); }
+#diagram-list li.diagram-item:hover .sb-typeicon.diagram,
+#diagram-list li.diagram-item.active .sb-typeicon { color: currentColor; }
 #diagram-list .sidebar-section {
   cursor: default;
   padding: 14px 10px 5px;
@@ -201,19 +239,10 @@ body {
 }
 #diagram-list .sidebar-empty {
   cursor: default;
-  padding: 2px 12px 6px 26px;
+  padding: 2px 12px 8px 30px;
   color: var(--text-faint);
   font-size: 12px;
 }
-#diagram-list .caret {
-  flex: 0 0 14px;
-  text-align: center;
-  font-size: 9px;
-  color: var(--text-muted);
-  transition: color 0.1s ease;
-}
-#diagram-list .caret.leaf { visibility: hidden; }
-#diagram-list .caret:not(.leaf):hover { color: var(--text); }
 #diagram-list .name {
   flex: 1 1 auto;
   white-space: nowrap;
@@ -233,6 +262,7 @@ body {
   height: 20px;
   border-radius: 4px;
   line-height: 1;
+  margin-left: 2px;
   opacity: 0;
   transition: opacity 0.1s ease, background-color 0.1s ease, color 0.1s ease;
 }
@@ -402,7 +432,12 @@ main {
 /* Interface ports on container edges + the role badge inside the subdiagram.
    in = entry (green), out = return (blue), dep = dependency (amber).
    in/dep render hollow ("plug here"); out is filled ("produced here"). */
-.port circle { stroke-width: 2; pointer-events: all; cursor: crosshair; }
+.port circle {
+  stroke-width: 2;
+  pointer-events: all;
+  cursor: crosshair;
+  transition: r 0.1s ease, stroke-width 0.1s ease;
+}
 .port circle:hover { stroke-width: 3; }
 .port text {
   font: 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
@@ -453,6 +488,16 @@ main {
 .node-icon {
   color: var(--node-icon);
   pointer-events: none;
+}
+/* Uniform, smooth stencil strokes regardless of how each glyph was authored. */
+.node-icon path,
+.node-icon rect,
+.node-icon ellipse,
+.node-icon circle,
+.node-icon line,
+.node-icon polyline {
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* ---------- overlays ---------- */
@@ -574,13 +619,15 @@ main {
   cursor: crosshair;
   transition: opacity 0.1s;
 }
-.conn-handle rect {
+.conn-handle circle {
   fill: var(--accent);
-  stroke: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
 }
+.conn-handle:hover circle { fill: var(--accent-hover); }
 .conn-handle text {
   fill: var(--accent-text);
-  font: bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   user-select: none;
   pointer-events: none;
 }
