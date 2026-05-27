@@ -72,6 +72,9 @@ Viewport{ x, y, zoom }
 - `fill`/`stroke`: optional CSS hex; empty falls back to the theme defaults.
 - `subdiagramId`: makes the node a **container** referencing another diagram
   as its nested interior (see below).
+- `port`: marks a node as part of its diagram's interface — `"in"` (entry),
+  `"out"` (return), `"dep"` (dependency). Surfaces as a port on any container
+  referencing that diagram (see below).
 - `curvature`: offset of an edge's drag handle from the straight midpoint.
 
 The JSON shape mirrors React Flow's `{nodes, edges, viewport}` for familiarity.
@@ -93,6 +96,15 @@ Composition is **by reference**, so a subdiagram is a normal diagram (reusable,
 editable, listable). Double-click a container to drill in; the title shows a
 clickable breadcrumb trail. Via MCP: `create_subdiagram` links a fresh diagram
 to a node; populate it with `add_node`/`add_edge` using the returned id.
+
+A subdiagram has an **interface like a function signature**: tag inner nodes
+with `data.port` = `"in"` / `"out"` / `"dep"` and the container surfaces them as
+ports — `in` on the left (entry), `out` on the right (return), `dep` on the
+bottom (a DB/API the inside relies on). The interface is **inferred from the
+inside** (single source of truth): the container fetches the subdiagram's
+port-tagged nodes (cached in `subPorts`) and draws a labelled disc per port. v1
+is visual; edge↔port wiring (parent edges binding to a specific inner node) is
+future work.
 
 ## MCP tools (12)
 

@@ -105,6 +105,7 @@ type NodeData struct {
     Fill         string `json:"fill,omitempty"`         // CSS hex; empty → theme default
     Stroke       string `json:"stroke,omitempty"`
     SubdiagramID string `json:"subdiagramId,omitempty"` // container → another diagram
+    Port         string `json:"port,omitempty"`         // interface role: in|out|dep
 }
 
 type Edge struct {
@@ -127,9 +128,17 @@ A node with `SubdiagramID` is a **container**: it points at another diagram
 (by ID) that is its nested interior. The subdiagram is a normal diagram —
 persisted, listed, and editable like any other, and reusable from multiple
 containers. The frontend renders a badge, drills in on double-click, and shows
-a breadcrumb. Over MCP, `create_subdiagram` creates+links one. Fine-grained
-input/output port mapping between a container and its inner nodes is **future
-work** — today edges connect to the container node as a whole.
+a breadcrumb. Over MCP, `create_subdiagram` creates+links one.
+
+**Interface ports (function metaphor).** A subdiagram declares its interface the
+way a function signature does: inner nodes tagged with `data.port` =
+`in`/`out`/`dep` become ports on any container referencing that diagram —
+`in` left (entry), `out` right (return), `dep` bottom (a DB/API the inside
+relies on). The interface is **inferred from the inside** (one source of truth):
+the container fetches the subdiagram's port-tagged nodes (cached frontend-side
+in `subPorts`) and draws a labelled disc per port; inner interface nodes carry
+an in/out/dep badge. v1 is visual — binding a parent edge to a *specific* inner
+port is **future work**; today edges connect to the container as a whole.
 
 ## Storage on disk
 

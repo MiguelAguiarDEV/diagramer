@@ -35,6 +35,13 @@ type NodeData struct {
 	// another Diagram (by ID) whose contents are the node's "inside". The
 	// referenced diagram is a normal diagram, editable and reusable on its own.
 	SubdiagramID string `json:"subdiagramId,omitempty"`
+	// Port marks a node as part of its diagram's interface, the way a function
+	// signature is defined by its params/return. When this diagram is used as a
+	// subdiagram, each interface node surfaces as a port on the container:
+	//   "in"  → entry,      drawn on the container's left
+	//   "out" → return,     drawn on the right
+	//   "dep" → dependency, drawn on the bottom (a DB/API the inside relies on)
+	Port string `json:"port,omitempty"`
 }
 
 type Edge struct {

@@ -196,6 +196,44 @@ function drawShape(g, shape, w, h) {
   }
 }
 
+// Draws interface ports on a container node's edges, derived from the
+// referenced subdiagram's port-tagged nodes: "in" on the left, "out" on the
+// right, "dep" along the bottom. Each port is a small disc plus its label.
+function drawContainerPorts(g, w, h, ports) {
+  if (!ports || ports.length === 0) return;
+  const ins = ports.filter((p) => p.role === "in");
+  const outs = ports.filter((p) => p.role === "out");
+  const deps = ports.filter((p) => p.role === "dep");
+
+  const place = (list, side) => {
+    list.forEach((p, i) => {
+      const t = (i + 1) / (list.length + 1);
+      let cx, cy, lx, ly, anchor;
+      if (side === "left") {
+        cx = 0; cy = h * t; lx = -8; ly = cy + 3; anchor = "end";
+      } else if (side === "right") {
+        cx = w; cy = h * t; lx = w + 8; ly = cy + 3; anchor = "start";
+      } else {
+        cx = w * t; cy = h; lx = cx; ly = h + 14; anchor = "middle";
+      }
+      const pg = svg("g", { class: "port port-" + p.role });
+      pg.appendChild(svg("circle", { cx, cy, r: 4 }));
+      if (p.label) {
+        const tx = svg("text", { x: lx, y: ly, "text-anchor": anchor });
+        tx.textContent = p.label;
+        pg.appendChild(tx);
+      }
+      const title = svg("title", {});
+      title.textContent = `${p.role}: ${p.label || "(unnamed)"}`;
+      pg.appendChild(title);
+      g.appendChild(pg);
+    });
+  };
+  place(ins, "left");
+  place(outs, "right");
+  place(deps, "bottom");
+}
+
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 1.1;
@@ -239,6 +277,10 @@ let saveTimer = null;
 // Drill-down trail of ancestor diagrams when navigating into subdiagrams.
 // Session-only; entries are { id, name }. The current diagram is not included.
 let breadcrumb = [];
+// Interface ports of referenced subdiagrams, keyed by subdiagram id:
+// subId -> [{ role: "in"|"out"|"dep", label }]. Filled by loadSubdiagramPorts
+// so container nodes can draw their ports without the sub being open.
+let subPorts = new Map();
 
 const HISTORY_LIMIT = 50;
 let past = [];
@@ -421,9 +463,36 @@ async function loadDiagram(id, opts = {}) {
     history.pushState({ id }, "", `/d/${id}`);
   }
   render();
+  loadSubdiagramPorts(); // async; re-renders containers with their ports
 }
 
 // ---------- subdiagrams ----------
+
+// Fetches the interface (port-tagged nodes) of every referenced subdiagram in
+// the current diagram, then re-renders so containers show their ports. Fresh
+// each load so edits to a subdiagram's interface show on return.
+async function loadSubdiagramPorts() {
+  const ids = [
+    ...new Set(diagram.nodes.filter((n) => n.data.subdiagramId).map((n) => n.data.subdiagramId)),
+  ];
+  subPorts = new Map();
+  await Promise.all(
+    ids.map(async (sid) => {
+      try {
+        const sd = await api("GET", `/api/diagrams/${sid}`);
+        subPorts.set(
+          sid,
+          sd.nodes
+            .filter((n) => n.data.port)
+            .map((n) => ({ role: n.data.port, label: n.data.label || "" })),
+        );
+      } catch {
+        /* missing subdiagram → no ports */
+      }
+    }),
+  );
+  render();
+}
 
 // Renders the title as a clickable breadcrumb of ancestors + current diagram.
 function renderBreadcrumb() {
@@ -747,6 +816,19 @@ function render() {
       badge.appendChild(svg("rect", { x: bx + 3, y: 6, width: 8, height: 6, rx: 1 }));
       badge.appendChild(svg("rect", { x: bx, y: 9, width: 8, height: 6, rx: 1 }));
       g.appendChild(badge);
+      // Interface ports derived from the referenced subdiagram.
+      drawContainerPorts(g, w, h, subPorts.get(n.data.subdiagramId));
+    }
+
+    // Interface-role badge: marks this node as part of its diagram's interface
+    // (in/out/dep), which surfaces as a port on any container referencing it.
+    if (n.data.port) {
+      const roleBadge = svg("g", { class: "port-badge port-" + n.data.port });
+      roleBadge.appendChild(svg("rect", { x: 4, y: 4, width: 22, height: 13, rx: 3 }));
+      const rt = svg("text", { x: 15, y: 14, "text-anchor": "middle" });
+      rt.textContent = n.data.port;
+      roleBadge.appendChild(rt);
+      g.appendChild(roleBadge);
     }
     nodesLayer.appendChild(g);
   }
@@ -1893,11 +1975,42 @@ function singleNodeMenuItems(id) {
       submenu: () => kindMenuItems((kind) => changeNodeKind(id, kind)),
     },
     { label: "Color ▸", submenu: () => colorMenuItems(new Set([id])) },
+    { label: "Interface ▸", submenu: () => interfaceMenuItems(id) },
     { separator: true },
     sub,
     { separator: true },
     { label: "Delete", action: () => deleteSelected() },
   ];
+}
+
+// Marks a node as part of its diagram's interface (so it becomes a port on any
+// container referencing this diagram), or clears the role.
+function interfaceMenuItems(id) {
+  const node = diagram.nodes.find((n) => n.id === id);
+  const cur = node ? node.data.port || "" : "";
+  const item = (role, label) => ({
+    label: (cur === role ? "✓ " : "") + label,
+    action: () => setNodePort(id, role),
+  });
+  return [
+    item("in", "Input (left)"),
+    item("out", "Output (right)"),
+    item("dep", "Dependency (bottom)"),
+    { separator: true },
+    item("", "None"),
+  ];
+}
+
+function setNodePort(id, role) {
+  const node = diagram.nodes.find((n) => n.id === id);
+  if (!node) return;
+  if ((node.data.port || "") === role) return;
+  pushHistory();
+  if (role) node.data.port = role;
+  else delete node.data.port;
+  save();
+  render();
+  setStatus(role ? `marked as ${role}` : "interface role cleared");
 }
 
 function changeNodeKind(id, kind) {
@@ -2032,6 +2145,7 @@ function isValidImport(raw) {
     if (!n.data || typeof n.data.label !== "string") return false;
     if (n.data.fill !== undefined && typeof n.data.fill !== "string") return false;
     if (n.data.stroke !== undefined && typeof n.data.stroke !== "string") return false;
+    if (n.data.port !== undefined && typeof n.data.port !== "string") return false;
   }
   for (const e of raw.edges) {
     if (typeof e.id !== "string" || typeof e.source !== "string" || typeof e.target !== "string") return false;

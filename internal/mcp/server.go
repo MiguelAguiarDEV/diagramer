@@ -77,6 +77,7 @@ type addNodeInput struct {
 	Y         float64 `json:"y" jsonschema:"y position in model coords"`
 	Fill      string  `json:"fill,omitempty" jsonschema:"fill color as a CSS hex like #13315c (optional)"`
 	Stroke    string  `json:"stroke,omitempty" jsonschema:"border color as a CSS hex like #3b82f6 (optional)"`
+	Port      string  `json:"port,omitempty" jsonschema:"mark as this diagram's interface so it surfaces as a port on a container: 'in' (entry/left), 'out' (return/right), or 'dep' (dependency/bottom, e.g. a DB or API). Optional."`
 }
 
 type idOutput struct {
@@ -93,6 +94,7 @@ type updateNodeInput struct {
 	Fill         *string `json:"fill,omitempty" jsonschema:"new fill hex; empty string clears it (omit to keep)"`
 	Stroke       *string `json:"stroke,omitempty" jsonschema:"new border hex; empty string clears it (omit to keep)"`
 	SubdiagramID *string `json:"subdiagram_id,omitempty" jsonschema:"link this node to a subdiagram by ID; empty string unlinks (omit to keep)"`
+	Port         *string `json:"port,omitempty" jsonschema:"interface role: 'in', 'out', or 'dep'; empty string clears it (omit to keep)"`
 }
 
 type createSubdiagramInput struct {
@@ -241,7 +243,7 @@ func (s *Server) addNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in addN
 		ID:       uuid.NewString(),
 		Kind:     in.Kind,
 		Position: diagrams.Position{X: in.X, Y: in.Y},
-		Data:     diagrams.NodeData{Label: in.Label, Fill: in.Fill, Stroke: in.Stroke},
+		Data:     diagrams.NodeData{Label: in.Label, Fill: in.Fill, Stroke: in.Stroke, Port: in.Port},
 	}
 	d.Nodes = append(d.Nodes, node)
 	if _, err := s.svc.Update(ctx, d, ""); err != nil {
@@ -278,6 +280,9 @@ func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 			}
 			if in.SubdiagramID != nil {
 				d.Nodes[i].Data.SubdiagramID = *in.SubdiagramID
+			}
+			if in.Port != nil {
+				d.Nodes[i].Data.Port = *in.Port
 			}
 			found = true
 			break

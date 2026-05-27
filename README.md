@@ -43,9 +43,16 @@ Diagrams are persisted as JSON under `./data` (configurable via `-data`).
 
 Any node can reference another diagram as its interior, so a box can hold its
 own mini-architecture (composition by reference — the subdiagram is a normal,
-reusable diagram). Right-click a node → **Create subdiagram** to make it a
-container and drill in; double-click a container to open it; use the breadcrumb
-in the title bar to navigate back out.
+reusable diagram). Use **+ Add → Container (subdiagram)** (or right-click a node
+→ **Create subdiagram**) to make a container; double-click a container to open
+it; use the breadcrumb in the title bar to navigate back out.
+
+A subdiagram works like a **function signature**: mark inner nodes via their
+context menu → **Interface** as **Input** (left), **Output** (right) or
+**Dependency** (bottom, e.g. a DB or API it relies on). The container then shows
+those as labelled ports on the matching edge — interface inferred from the
+inside, so you only maintain one place. Over MCP/JSON, set `data.port` to
+`"in"`/`"out"`/`"dep"` on the inner nodes.
 
 ## Tests
 

@@ -237,15 +237,23 @@ func TestSubdiagramComposition(t *testing.T) {
 		t.Fatalf("node not linked: got %q, want %q", pg.Diagram.Nodes[0].Data.SubdiagramID, subID)
 	}
 
-	// Populate the subdiagram via its own ID.
-	g := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": subID, "label": "Gateway", "x": 0.0, "y": 0.0}).ID
-	l := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": subID, "label": "Ledger", "x": 200.0, "y": 0.0}).ID
+	// Populate the subdiagram via its own ID, tagging interface roles so the
+	// container can surface ports (in = entry, out = return).
+	g := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": subID, "label": "Gateway", "x": 0.0, "y": 0.0, "port": "in"}).ID
+	l := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": subID, "label": "Ledger", "x": 200.0, "y": 0.0, "port": "out"}).ID
 	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": subID, "source": g, "target": l})
 
 	sg := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": subID})
 	if len(sg.Diagram.Nodes) != 2 || len(sg.Diagram.Edges) != 1 {
 		t.Fatalf("subdiagram contents: %d nodes / %d edges, want 2 / 1",
 			len(sg.Diagram.Nodes), len(sg.Diagram.Edges))
+	}
+	ports := map[string]string{}
+	for _, n := range sg.Diagram.Nodes {
+		ports[n.Data.Label] = n.Data.Port
+	}
+	if ports["Gateway"] != "in" || ports["Ledger"] != "out" {
+		t.Errorf("interface roles not persisted: %v", ports)
 	}
 
 	// Unlink via update_node (empty string clears the reference).

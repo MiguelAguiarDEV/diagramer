@@ -51,7 +51,8 @@ en JSON inspectable y diff-able, sin nube ni login, y una superficie MCP para IA
   colores por nodo, undo/redo.
 - "Tidy up" (auto-layout por profundidad de aristas).
 - **Subdiagramas**: un nodo contenedor referencia otro diagrama como interior,
-  navegable con breadcrumb.
+  navegable con breadcrumb. Interfaz tipo función: nodos internos marcados
+  `in`/`out`/`dep` afloran como puertos en la caja (izquierda/derecha/abajo).
 - Temas claro (vainilla) / oscuro, persistidos.
 - Import/Export JSON, export SVG/PNG.
 - Autosave con detección de conflicto por ETag.
@@ -59,7 +60,9 @@ en JSON inspectable y diff-able, sin nube ni login, y una superficie MCP para IA
 
 ### Futuro reconocido
 
-- Puertos de entrada/salida en subdiagramas con mapeo a nodos internos.
+- Mapeo fino arista↔puerto: que una arista del padre se conecte a un puerto
+  concreto de la caja y se vincule al nodo interno correspondiente (hoy los
+  puertos son visuales y las aristas conectan a la caja entera).
 - Code-aware import (parsear un repo → diagrama).
 - Ocultar subdiagramas referenciados de la lista raíz.
 
