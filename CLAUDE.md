@@ -103,8 +103,13 @@ The JSON shape mirrors React Flow's `{nodes, edges, viewport}` for familiarity.
 A node with `data.subdiagramId` references another diagram as its inside.
 Composition is **by reference**, so a subdiagram is a normal diagram (reusable,
 editable, listable). Double-click a container to drill in; the title shows a
-clickable breadcrumb trail. Via MCP: `create_subdiagram` links a fresh diagram
-to a node; populate it with `add_node`/`add_edge` using the returned id.
+clickable breadcrumb trail (the containment path). Orthogonally, a chronological
+history powers Back/Forward (toolbar `‹ ›` or Alt+←/→) so you can return to
+wherever you were regardless of how you got there (sidebar jump, drill-in,
+crumb); each history entry restores its breadcrumb. Fit (toolbar button or `F`)
+zooms/pans so the whole diagram fits — the "see everything" view. Via MCP:
+`create_subdiagram` links a fresh diagram to a node; populate it with
+`add_node`/`add_edge` using the returned id.
 
 A subdiagram has an **interface like a function signature**: tag inner nodes
 with `data.port` = `"in"` / `"out"` / `"dep"` and the container surfaces them as
