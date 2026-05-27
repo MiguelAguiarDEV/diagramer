@@ -1,89 +1,122 @@
-/* ---------- theme tokens ---------- */
-/* Base :root = dark ("midnight"). [data-theme="light"] = warm vanilla.
-   The dark palette keeps the original values so nothing regresses. */
+/* ---------- design tokens ---------- */
+/* Base :root = dark (default). [data-theme="light"] = clean neutral.
+   Diagram-content tokens (--node-fill etc.) keep their values for parity with
+   the renderer/tests; the surrounding "chrome" tokens drive the UI styling. */
 :root {
-  --bg: #0b0b0d;
-  --surface: #131418;
-  --surface-bar: #15161a;
-  --surface-btn: #23252c;
-  --surface-btn-hover: #2c2f37;
-  --surface-hover: #1c1d23;
-  --border: #2a2b32;
-  --border-btn: #2f323b;
-  --text: #e5e7eb;
-  --text-muted: #9ca3af;
-  --text-list: #d1d5db;
-  --accent: #2563eb;
+  /* surfaces & lines */
+  --bg: #0b0d10;
+  --surface: #111419;
+  --surface-bar: #111419;
+  --surface-2: #171b21;
+  --surface-btn: #1b1f26;
+  --surface-btn-hover: #232831;
+  --surface-hover: #191d24;
+  --border: #20252d;
+  --border-btn: #2a313b;
+  /* text */
+  --text: #e6e9ef;
+  --text-muted: #9298a3;
+  --text-list: #c4c9d2;
+  --text-faint: #636a75;
+  /* accent */
+  --accent: #6366f1;
+  --accent-hover: #7c7ff6;
   --accent-text: #ffffff;
-  --active-bg: #1e3a8a;
-  --active-text: #ffffff;
+  --active-bg: rgba(99, 102, 241, 0.16);
+  --active-text: #eef0ff;
+  /* diagram content */
   --node-fill: #1f2937;
-  --node-stroke: #374151;
-  --node-stroke-hover: #60a5fa;
-  --node-text: #e5e7eb;
-  --node-icon: #93c5fd;
+  --node-stroke: #3a4452;
+  --node-stroke-hover: #818cf8;
+  --node-text: #e6e9ef;
+  --node-icon: #a5b4fc;
   --connect: #f59e0b;
-  --edge: #6b7280;
-  --edge-hover: #93c5fd;
-  --edge-label-bg: #0b0b0d;
+  --edge: #5b626d;
+  --edge-hover: #818cf8;
+  --edge-label-bg: #0b0d10;
   --handle-fill: #ffffff;
-  --dot: #1f2128;
-  --danger: #ef4444;
-  --lasso-fill: rgba(37, 99, 235, 0.1);
-  --minimap-bg: rgba(19, 20, 24, 0.85);
-  --minimap-node: #374151;
-  --minimap-vp-fill: rgba(37, 99, 235, 0.18);
-  --shadow: rgba(0, 0, 0, 0.4);
+  --dot: #191d24;
+  --danger: #f05252;
+  --lasso-fill: rgba(99, 102, 241, 0.12);
+  --minimap-bg: rgba(17, 20, 25, 0.9);
+  --minimap-node: #3a4452;
+  --minimap-vp-fill: rgba(99, 102, 241, 0.18);
+  --shadow: rgba(0, 0, 0, 0.5);
+  /* shape */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --shadow-pop: 0 12px 32px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
 }
 
 :root[data-theme="light"] {
-  --bg: #faf4e8;
-  --surface: #f3ead7;
-  --surface-bar: #f0e6d1;
-  --surface-btn: #ece1c9;
-  --surface-btn-hover: #e3d5b8;
-  --surface-hover: #efe6d3;
-  --border: #ddd0b6;
-  --border-btn: #d3c4a6;
-  --text: #4a4234;
-  --text-muted: #8a7d63;
-  --text-list: #5b5343;
-  --accent: #3f72ab;
+  --bg: #ffffff;
+  --surface: #fbfbfc;
+  --surface-bar: #ffffff;
+  --surface-2: #ffffff;
+  --surface-btn: #f4f5f7;
+  --surface-btn-hover: #eaecef;
+  --surface-hover: #f3f4f6;
+  --border: #e7e9ee;
+  --border-btn: #dfe2e8;
+  --text: #1b1f24;
+  --text-muted: #6b7280;
+  --text-list: #3a3f47;
+  --text-faint: #aab0b8;
+  --accent: #6366f1;
+  --accent-hover: #5457e0;
   --accent-text: #ffffff;
-  --active-bg: #3f72ab;
-  --active-text: #ffffff;
-  --node-fill: #fffaf0;
-  --node-stroke: #c9b797;
-  --node-stroke-hover: #3f72ab;
-  --node-text: #4a4234;
-  --node-icon: #b07a3c;
-  --connect: #d98324;
-  --edge: #a8946e;
-  --edge-hover: #3f72ab;
-  --edge-label-bg: #faf4e8;
+  --active-bg: rgba(99, 102, 241, 0.12);
+  --active-text: #312e81;
+  --node-fill: #ffffff;
+  --node-stroke: #d3d7de;
+  --node-stroke-hover: #6366f1;
+  --node-text: #1b1f24;
+  --node-icon: #6366f1;
+  --connect: #ea8a0b;
+  --edge: #b6bcc6;
+  --edge-hover: #6366f1;
+  --edge-label-bg: #ffffff;
   --handle-fill: #ffffff;
-  --dot: #e7dcc4;
-  --danger: #c0492f;
-  --lasso-fill: rgba(63, 114, 171, 0.12);
-  --minimap-bg: rgba(243, 234, 215, 0.9);
-  --minimap-node: #d6c6a3;
-  --minimap-vp-fill: rgba(63, 114, 171, 0.18);
-  --shadow: rgba(120, 100, 70, 0.25);
+  --dot: #ebedf1;
+  --danger: #e02424;
+  --lasso-fill: rgba(99, 102, 241, 0.1);
+  --minimap-bg: rgba(255, 255, 255, 0.92);
+  --minimap-node: #d3d7de;
+  --minimap-vp-fill: rgba(99, 102, 241, 0.16);
+  --shadow: rgba(17, 24, 39, 0.12);
+  --shadow-pop: 0 12px 32px -8px rgba(17, 24, 39, 0.18), 0 0 0 1px var(--border);
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
-  font-family: system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
   background: var(--bg);
   color: var(--text);
   display: flex;
   flex-direction: row;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
+/* Thin, unobtrusive scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-btn); background-clip: padding-box; }
+
+/* ---------- sidebar ---------- */
 #sidebar {
-  width: 240px;
-  flex: 0 0 240px;
+  width: 248px;
+  flex: 0 0 248px;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
@@ -94,61 +127,90 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 14px 14px 12px;
+  height: 53px;
 }
-.sidebar-head .brand { font-weight: 700; }
+.sidebar-head .brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 650;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.sidebar-head .brand::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, var(--accent), #a5b4fc);
+  box-shadow: 0 1px 4px -1px var(--accent);
+}
 .sidebar-head button {
-  background: var(--surface-btn);
-  color: var(--text);
-  border: 1px solid var(--border-btn);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: var(--radius-sm);
   width: 28px;
   height: 28px;
   cursor: pointer;
   font: inherit;
+  font-size: 18px;
   line-height: 1;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
-.sidebar-head button:hover { background: var(--surface-btn-hover); }
+.sidebar-head button:hover { background: var(--surface-hover); color: var(--text); }
 
 #diagram-list {
   list-style: none;
   margin: 0;
-  padding: 4px 0;
+  padding: 6px 8px 12px;
   overflow-y: auto;
   flex: 1 1 auto;
 }
-#diagram-list li {
+#diagram-list li.diagram-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  margin: 1px 0;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
   color: var(--text-list);
+  transition: background-color 0.1s ease, color 0.1s ease;
 }
-#diagram-list li.diagram-item:hover { background: var(--surface-hover); }
-#diagram-list li.diagram-item.active { background: var(--active-bg); color: var(--active-text); }
+#diagram-list li.diagram-item:hover { background: var(--surface-hover); color: var(--text); }
+#diagram-list li.diagram-item.active {
+  background: var(--active-bg);
+  color: var(--active-text);
+  font-weight: 500;
+}
 #diagram-list .sidebar-section {
   cursor: default;
-  padding: 10px 12px 4px;
+  padding: 14px 10px 5px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
 }
 #diagram-list .sidebar-empty {
   cursor: default;
-  padding: 2px 12px 6px 22px;
-  color: var(--text-muted);
+  padding: 2px 12px 6px 26px;
+  color: var(--text-faint);
   font-size: 12px;
 }
 #diagram-list .caret {
-  flex: 0 0 12px;
+  flex: 0 0 14px;
   text-align: center;
   font-size: 9px;
   color: var(--text-muted);
+  transition: color 0.1s ease;
 }
 #diagram-list .caret.leaf { visibility: hidden; }
 #diagram-list .caret:not(.leaf):hover { color: var(--text); }
@@ -159,30 +221,37 @@ body {
   text-overflow: ellipsis;
 }
 #diagram-list .del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-faint);
   cursor: pointer;
-  font-size: 14px;
-  padding: 0 4px;
+  font-size: 15px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
   line-height: 1;
-  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.1s ease, background-color 0.1s ease, color 0.1s ease;
 }
-#diagram-list li:hover .del,
-#diagram-list li.active .del { visibility: visible; }
-#diagram-list .del:hover { color: var(--danger); }
+#diagram-list li.diagram-item:hover .del,
+#diagram-list li.diagram-item.active .del { opacity: 1; }
+#diagram-list .del:hover { color: var(--danger); background: var(--surface-btn-hover); }
 #diagram-list .name-input {
   flex: 1 1 auto;
   font: inherit;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--accent);
-  border-radius: 3px;
-  padding: 2px 4px;
+  border-radius: 4px;
+  padding: 2px 6px;
   outline: none;
   min-width: 0;
 }
 
+/* ---------- main / toolbar ---------- */
 main {
   flex: 1 1 auto;
   display: flex;
@@ -194,68 +263,103 @@ main {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 4px;
+  padding: 10px 14px;
+  height: 53px;
   background: var(--surface-bar);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
 .toolbar .title {
   font-weight: 600;
-  margin-right: 12px;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  margin: 0 10px 0 6px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.toolbar .title .crumb {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
 }
 .toolbar .title .crumb.current { color: var(--text); }
 .toolbar .title .crumb:not(.current) {
   color: var(--text-muted);
   cursor: pointer;
+  transition: color 0.1s ease;
 }
-.toolbar .title .crumb:not(.current):hover {
-  color: var(--accent);
-  text-decoration: underline;
-}
+.toolbar .title .crumb:not(.current):hover { color: var(--text); }
 .toolbar .title .crumb-sep {
-  color: var(--text-muted);
-  margin: 0 6px;
+  color: var(--text-faint);
+  margin: 0 7px;
   font-weight: 400;
 }
-.toolbar button {
-  background: var(--surface-btn);
-  color: var(--text);
-  border: 1px solid var(--border-btn);
-  padding: 6px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font: inherit;
-}
-.toolbar button.nav-btn {
-  padding: 6px 9px;
-  font-size: 16px;
-  line-height: 1;
-}
-.toolbar button:hover:not(:disabled) { background: var(--surface-btn-hover); }
-.toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
-.toolbar button.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.status { margin-left: auto; font-size: 12px; color: var(--text-muted); }
 
-#theme-toggle {
+.toolbar button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+.toolbar button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.toolbar button:disabled { opacity: 0.35; cursor: not-allowed; }
+.toolbar button.nav-btn {
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  font-size: 17px;
+  color: var(--text-muted);
+}
+/* Primary action: the only filled button, so the eye lands on it. */
+.toolbar button#add-box {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.toolbar button#add-box:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-text); }
+/* Toggle-on state (e.g. Connect mode). */
+.toolbar button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.toolbar button.active:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-text); }
+#delete:hover:not(:disabled) { color: var(--danger); }
+
+.status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-right: 4px;
+}
+
+#theme-toggle {
   width: 32px;
   height: 32px;
   padding: 0;
+  color: var(--text-muted);
 }
 #theme-toggle svg { width: 16px; height: 16px; display: block; }
 
+/* ---------- canvas ---------- */
 #canvas {
   flex: 1 1 auto;
   width: 100%;
   background:
-    radial-gradient(circle, var(--dot) 1px, transparent 1px) 0 0 / 24px 24px,
+    radial-gradient(circle, var(--dot) 1px, transparent 1.4px) 0 0 / 22px 22px,
     var(--bg);
   cursor: default;
 }
@@ -267,6 +371,7 @@ main {
 #arrow path { fill: var(--edge); }
 #arrow-selected path { fill: var(--accent); }
 
+/* ---------- diagram content ---------- */
 .node-shape {
   fill: var(--node-fill);
   stroke: var(--node-stroke);
@@ -274,7 +379,7 @@ main {
 }
 .node text {
   fill: var(--node-text);
-  font: 13px system-ui, sans-serif;
+  font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   pointer-events: none;
   user-select: none;
 }
@@ -300,7 +405,7 @@ main {
 .port circle { stroke-width: 2; pointer-events: all; cursor: crosshair; }
 .port circle:hover { stroke-width: 3; }
 .port text {
-  font: 10px system-ui, sans-serif;
+  font: 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   fill: var(--text-muted);
   pointer-events: none;
   /* Background-colored halo so an edge passing behind stays out of the text. */
@@ -324,7 +429,7 @@ main {
 .add-port.add-in circle  { stroke: #22c55e; }
 .add-port.add-dep circle { stroke: #f59e0b; }
 .add-port text {
-  font: bold 11px system-ui, sans-serif;
+  font: bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   pointer-events: none;
   user-select: none;
 }
@@ -335,7 +440,7 @@ main {
 
 .port-badge rect { stroke: none; }
 .port-badge text {
-  font: 9px system-ui, sans-serif;
+  font: 9px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   fill: #fff;
   text-transform: uppercase;
   pointer-events: none;
@@ -350,49 +455,55 @@ main {
   pointer-events: none;
 }
 
+/* ---------- overlays ---------- */
 #node-editor {
   position: absolute;
   border: 2px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   outline: none;
   background: var(--node-fill);
   color: var(--node-text);
-  font-family: system-ui, sans-serif;
+  font-family: inherit;
   text-align: center;
   padding: 0 8px;
   box-sizing: border-box;
   z-index: 10;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
 }
 #node-editor[hidden] { display: none; }
 
 #ctx-menu {
   position: absolute;
-  background: var(--surface-hover);
+  background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 0;
-  min-width: 180px;
-  box-shadow: 0 4px 12px var(--shadow);
+  border-radius: var(--radius-md);
+  padding: 5px;
+  min-width: 190px;
+  box-shadow: var(--shadow-pop);
   z-index: 100;
   user-select: none;
 }
 #ctx-menu[hidden] { display: none; }
 #ctx-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
   background: transparent;
   color: var(--text);
   border: none;
   text-align: left;
-  padding: 6px 12px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font: 13px system-ui, sans-serif;
+  font: inherit;
+  font-size: 13px;
+  transition: background-color 0.1s ease;
 }
-#ctx-menu button:hover { background: var(--accent); color: var(--accent-text); }
+#ctx-menu button:hover { background: var(--surface-hover); }
 #ctx-menu .sep {
   height: 1px;
   background: var(--border);
-  margin: 4px 0;
+  margin: 5px 6px;
 }
 #ctx-menu .ctx-swatch {
   display: inline-block;
@@ -400,10 +511,11 @@ main {
   height: 12px;
   border-radius: 3px;
   border: 1px solid var(--border-btn);
-  margin-right: 8px;
+  margin-right: 9px;
   vertical-align: -1px;
 }
 
+/* ---------- edges ---------- */
 .edge {
   stroke: var(--edge);
   stroke-width: 1.5;
@@ -429,7 +541,7 @@ main {
 
 .edge-label {
   fill: var(--node-text);
-  font: 12px system-ui, sans-serif;
+  font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   pointer-events: none;
   user-select: none;
 }
@@ -468,13 +580,14 @@ main {
 }
 .conn-handle text {
   fill: var(--accent-text);
-  font: bold 14px system-ui, sans-serif;
+  font: bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   user-select: none;
   pointer-events: none;
 }
 .node:hover .conn-handle,
 .node.selected .conn-handle { opacity: 1; }
 
+/* ---------- minimap ---------- */
 #minimap {
   position: absolute;
   right: 16px;
@@ -483,9 +596,11 @@ main {
   height: 150px;
   background: var(--minimap-bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   z-index: 50;
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(8px);
 }
 .minimap-node {
   fill: var(--minimap-node);
@@ -503,4 +618,3 @@ main {
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
-
