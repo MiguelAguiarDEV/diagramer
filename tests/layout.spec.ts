@@ -317,6 +317,52 @@ test("Add menu creates a container node with a subdiagram in one step", async ({
   expect(list.length).toBeGreaterThanOrEqual(2);
 });
 
+test("container surfaces interface ports derived from its subdiagram", async ({
+  page,
+  request,
+}) => {
+  // Subdiagram whose nodes declare interface roles (in/out/dep).
+  const subId = await createDiagram(
+    request,
+    "Payments internals",
+    [
+      { id: "rx", kind: "rect", position: { x: 0, y: 0 }, data: { label: "Request", port: "in" } },
+      { id: "tx", kind: "rect", position: { x: 260, y: 0 }, data: { label: "Receipt", port: "out" } },
+      { id: "db", kind: "database", position: { x: 120, y: 160 }, data: { label: "Ledger DB", port: "dep" } },
+    ],
+    [mkEdge("e1", "rx", "tx"), mkEdge("e2", "rx", "db")],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  const parentId = await createDiagram(
+    request,
+    "Checkout",
+    [{ id: "box", kind: "rect", position: { x: 120, y: 120 }, data: { label: "Payments", subdiagramId: subId } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+
+  await openDiagram(page, parentId);
+  // Ports load asynchronously after the first render.
+  await page.waitForSelector("#nodes .node.container .port", { timeout: 5000 });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: `${SHOTS}/16-container-ports.png` });
+
+  const counts = await page.evaluate(() => ({
+    in: document.querySelectorAll(".node.container .port.port-in").length,
+    out: document.querySelectorAll(".node.container .port.port-out").length,
+    dep: document.querySelectorAll(".node.container .port.port-dep").length,
+  }));
+  expect(counts).toEqual({ in: 1, out: 1, dep: 1 });
+
+  // Drilling in shows the role badges on the interface nodes.
+  await page.locator('#nodes .node[data-id="box"]').dblclick();
+  await page.waitForSelector('#nodes .node[data-id="rx"]', { timeout: 5000 });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${SHOTS}/17-interface-inside.png` });
+  const badges = await page.$$eval(".node .port-badge", (els) => els.length);
+  expect(badges).toBe(3);
+});
+
 test("container node opens its subdiagram and breadcrumb navigates back", async ({
   page,
   request,
