@@ -260,6 +260,29 @@ test("theme toggle switches palette, persists, and renders both modes", async ({
   ).toBe("light");
 });
 
+test("right-click canvas menu mirrors the Add menu (flat kinds + container)", async ({
+  page,
+  request,
+}) => {
+  const id = await createDiagram(request, "RightClick", [], [], { x: 200, y: 150, zoom: 1 });
+  await page.goto(`/d/${id}`);
+  await page.waitForSelector("#canvas");
+  await page.waitForTimeout(200);
+
+  await page.mouse.click(700, 400, { button: "right" });
+  await page.waitForSelector("#ctx-menu", { state: "visible" });
+
+  const labels = await page.$$eval("#ctx-menu button", (els) =>
+    els.map((e) => e.textContent),
+  );
+  // Kinds appear directly (no "Add ▸" submenu), plus the one-step container.
+  expect(labels).toContain("Rectangle");
+  expect(labels).toContain("Database");
+  expect(labels).toContain("Container (subdiagram)");
+  expect(labels).toContain("Tidy up");
+  expect(labels.some((l) => l && l.includes("Add"))).toBe(false);
+});
+
 test("Add menu creates a container node with a subdiagram in one step", async ({
   page,
   request,

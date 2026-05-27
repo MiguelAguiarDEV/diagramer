@@ -1007,20 +1007,23 @@ function addAtViewportCenter(kind) {
 // Adds a container box in one step: a fresh empty subdiagram is created and
 // linked, and the box stays in the current diagram (badge shown) so you can
 // see it land. Double-click it (or use the context menu) to edit its inside.
-async function addContainer() {
+// With no coords, drops it at the viewport center.
+async function addContainer(modelX, modelY) {
   const label = prompt("Container label:", "Container");
   if (label === null) return;
-  const rect = canvas.getBoundingClientRect();
-  const { x: vx, y: vy, zoom } = diagram.viewport;
-  const mx = (rect.width / 2 - vx) / zoom;
-  const my = (rect.height / 2 - vy) / zoom;
+  if (modelX === undefined) {
+    const rect = canvas.getBoundingClientRect();
+    const { x: vx, y: vy, zoom } = diagram.viewport;
+    modelX = (rect.width / 2 - vx) / zoom;
+    modelY = (rect.height / 2 - vy) / zoom;
+  }
   const name = (label.trim() || "Container") + " — inside";
   try {
     const created = await api("POST", "/api/diagrams", { name });
     pushHistory();
     diagram.nodes.push({
       id: uid(),
-      position: { x: mx - NODE_MIN_W / 2, y: my - NODE_H / 2 },
+      position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
       data: { label: label.trim(), subdiagramId: created.id },
     });
     save();
@@ -1040,12 +1043,23 @@ function kindMenuItems(onPick) {
   }));
 }
 
+// The shared "things you can add" list, used by both the + Add toolbar button
+// and the empty-canvas context menu so they stay in sync: every node kind plus
+// a one-step container.
+function addMenuItems(onPickKind, onPickContainer) {
+  const items = kindMenuItems(onPickKind);
+  items.push({ separator: true });
+  items.push({ label: "Container (subdiagram)", action: onPickContainer });
+  return items;
+}
+
 addBtn.addEventListener("click", () => {
   const rect = addBtn.getBoundingClientRect();
-  const items = kindMenuItems(addAtViewportCenter);
-  items.push({ separator: true });
-  items.push({ label: "Container (subdiagram)", action: addContainer });
-  showContextMenu(rect.left, rect.bottom + 2, items);
+  showContextMenu(
+    rect.left,
+    rect.bottom + 2,
+    addMenuItems(addAtViewportCenter, () => addContainer()),
+  );
 });
 
 connectBtn.addEventListener("click", () => {
@@ -1819,11 +1833,13 @@ function alignSelected(axis, mode) {
 }
 
 function emptyMenuItems(modelPos) {
+  // Same add options as the + Add button, flattened (no "Add ▸" submenu), but
+  // dropping nodes at the cursor instead of the viewport center.
   return [
-    {
-      label: "Add ▸",
-      submenu: () => kindMenuItems((kind) => addBoxAt(modelPos.x, modelPos.y, kind)),
-    },
+    ...addMenuItems(
+      (kind) => addBoxAt(modelPos.x, modelPos.y, kind),
+      () => addContainer(modelPos.x, modelPos.y),
+    ),
     { separator: true },
     { label: "Tidy up", action: tidyUp },
   ];
