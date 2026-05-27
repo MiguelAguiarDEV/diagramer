@@ -38,6 +38,7 @@
       <button id="connect-mode">Connect</button>
       <button id="delete" disabled>Delete</button>
       <button id="fit-view" title="Fit everything in view (F)">Fit</button>
+      <button id="map-view" title="System map — hierarchy of diagrams (M)">Map</button>
       <button id="import">Import</button>
       <button id="export">Export</button>
       <span id="status" class="status"></span>
@@ -63,6 +64,21 @@
       <g id="minimap-content"></g>
       <rect id="minimap-vp"></rect>
     </svg>
+    <div id="hierarchy-overlay" hidden>
+      <div class="hierarchy-head">
+        <span class="hierarchy-title">System map</span>
+        <button id="hierarchy-close" title="Close (Esc)">×</button>
+      </div>
+      <svg id="hierarchy-svg" xmlns="http://www.w3.org/2000/svg" aria-label="System hierarchy">
+        <defs>
+          <marker id="hier-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z"></path>
+          </marker>
+        </defs>
+        <g id="hierarchy-content"></g>
+      </svg>
+    </div>
   </main>
   <input id="node-editor" type="text" hidden>
   <div id="ctx-menu" hidden></div>

@@ -107,7 +107,12 @@ clickable breadcrumb trail (the containment path). Orthogonally, a chronological
 history powers Back/Forward (toolbar `‹ ›` or Alt+←/→) so you can return to
 wherever you were regardless of how you got there (sidebar jump, drill-in,
 crumb); each history entry restores its breadcrumb. Fit (toolbar button or `F`)
-zooms/pans so the whole diagram fits — the "see everything" view. Via MCP:
+zooms/pans so the whole diagram fits — the "see everything" view. Map (toolbar
+button or `M`) opens an overlay drawing the whole **containment graph** (a node
+per diagram, a directed edge per "contains", laid out in levels from
+`DiagramMeta.subdiagrams` — so no full diagrams are fetched); pan/zoom it and
+click a node to jump there. It's a flat graph (each diagram once), so recursive
+references are just edges/cycles and never loop. Via MCP:
 `create_subdiagram` links a fresh diagram to a node; populate it with
 `add_node`/`add_edge` using the returned id.
 
