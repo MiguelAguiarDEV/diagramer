@@ -791,6 +791,45 @@ test("drag a sidebar diagram onto the canvas places it as a container", async ({
     .toBe(true);
 });
 
+test("dropping a connection on empty canvas opens a quick-create menu and wires it", async ({
+  page,
+  request,
+}) => {
+  const id = await createDiagram(request, "QuickConnect", [mkNode("src", "rect", "Source", 200, 200)], [], {
+    x: 100,
+    y: 100,
+    zoom: 1,
+  });
+  await openDiagram(page, id);
+
+  // Grab the node's "+" connection handle (rendered even while transparent).
+  const hb = await page
+    .locator('#nodes .node[data-id="src"] .conn-handle circle')
+    .evaluate((el: any) => {
+      const r = el.getBoundingClientRect();
+      return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    });
+
+  // Drag it out to empty canvas and release.
+  await page.mouse.move(hb.cx, hb.cy);
+  await page.mouse.down();
+  await page.mouse.move(hb.cx + 260, hb.cy + 170, { steps: 8 });
+  await page.mouse.up();
+
+  // The quick-create menu appears; choosing a kind creates a wired node.
+  await expect(page.locator("#ctx-menu")).toBeVisible();
+  page.once("dialog", (d) => d.accept("Target"));
+  await page.locator("#ctx-menu button", { hasText: "Rectangle" }).click();
+
+  await expect
+    .poll(async () => {
+      const saved = await (await request.get(`/api/diagrams/${id}`)).json();
+      const tgt = saved.nodes.find((n: any) => n.data.label === "Target");
+      return !!tgt && saved.edges.some((e: any) => e.source === "src" && e.target === tgt.id);
+    })
+    .toBe(true);
+});
+
 test("minimap mirrors the nodes and recenters the view on click", async ({
   page,
   request,
