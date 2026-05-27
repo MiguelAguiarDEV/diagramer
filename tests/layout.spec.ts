@@ -437,6 +437,32 @@ test("container '+' adds an input port and scaffolds the inside", async ({
   expect(sd.nodes.filter((n: any) => n.data.port === "in").length).toBe(1);
 });
 
+test("container shows a scaled minimap of its inside", async ({ page, request }) => {
+  const subId = await createDiagram(
+    request,
+    "Insides",
+    [mkNode("a", "rect", "A", 0, 0), mkNode("b", "database", "B", 220, 40), mkNode("c", "rect", "C", 120, 180)],
+    [mkEdge("e1", "a", "b"), mkEdge("e2", "a", "c")],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  const parentId = await createDiagram(
+    request,
+    "Preview",
+    [{ id: "box", kind: "rect", position: { x: 160, y: 140 }, data: { label: "Module", subdiagramId: subId } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  await openDiagram(page, parentId);
+  await page.waitForSelector(".node.container .sub-preview rect", { timeout: 5000 });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: `${SHOTS}/21-container-preview.png` });
+
+  const rects = await page.$$eval(".node.container .sub-preview rect", (els) => els.length);
+  expect(rects).toBe(3); // one per inner node
+  const lines = await page.$$eval(".node.container .sub-preview line", (els) => els.length);
+  expect(lines).toBe(2); // one per inner edge
+});
+
 test("dragging from a container port wires an edge bound to that port", async ({
   page,
   request,

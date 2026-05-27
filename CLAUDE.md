@@ -103,10 +103,15 @@ ports — `in` on the left (entry), `out` on the right (return), `dep` on the
 top (a DB/API the inside relies on). The interface is **inferred from the
 inside** (single source of truth): the container fetches the subdiagram's
 port-tagged nodes (cached in `subPorts`) and draws a disc per port — in/dep
-hollow ("plug here"), out filled. Containers show "+" affordances (left = add
-input, top = add dependency) that scaffold the matching interface node inside;
-the output appears on its own from inside. v1 is visual; edge↔port wiring
-(parent edges binding to a specific inner node) is future work.
+hollow ("plug here"), out filled. A dashed "+" bolita sits at the next slot of
+the in/dep lines to add more (it scaffolds the matching interface node inside);
+containers auto-grow so ports keep a fixed spacing. Edges can bind to a specific
+port: drag from a port disc, or drop a connection onto one — stored as
+`edge.sourcePort`/`targetPort` (the inner node id) and anchored there via
+`anchorsFor`. The container also renders a scaled minimap of its inside
+(`subPreview`, drawn by `drawSubPreview`) with its label as a bottom caption.
+Inside a subdiagram, create interface nodes via the Add menu → Interface port,
+or mark/clear any node's role from its context menu.
 
 ## MCP tools (12)
 

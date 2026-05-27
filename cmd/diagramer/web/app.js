@@ -79,6 +79,9 @@ function nodeSize(node) {
     const depsN = ports.filter((p) => p.role === "dep").length;
     h = Math.max(h, Math.max(insN + 1, outsN) * PORT_GAP + 18);
     w = Math.max(w, (depsN + 1) * PORT_GAP + 28);
+    // Room for the in-container minimap + a bottom label strip.
+    w = Math.max(w, 132);
+    h = Math.max(h, 84);
   }
   return { w: Math.ceil(w), h: Math.ceil(h) };
 }
@@ -292,6 +295,35 @@ function drawContainerPorts(g, node) {
   }
 }
 
+// Draws a scaled minimap of the subdiagram's contents inside the container's
+// body (node rects + edge lines), fit into the area above the bottom label
+// strip. Gives an at-a-glance sense of what's inside without drilling in.
+function drawSubPreview(g, node, w, h) {
+  const pv = subPreview.get(node.data.subdiagramId);
+  if (!pv || !pv.bbox || !pv.rects.length) return;
+  const padX = 8, top = 7, bottom = 16;
+  const aw = w - 2 * padX, ah = h - top - bottom;
+  if (aw <= 6 || ah <= 6) return;
+  const s = Math.min(aw / (pv.bbox.w || 1), ah / (pv.bbox.h || 1));
+  const ox = padX + (aw - pv.bbox.w * s) / 2 - pv.bbox.x * s;
+  const oy = top + (ah - pv.bbox.h * s) / 2 - pv.bbox.y * s;
+  const pg = svg("g", { class: "sub-preview" });
+  for (const ln of pv.lines) {
+    pg.appendChild(svg("line", {
+      x1: ox + ln.x1 * s, y1: oy + ln.y1 * s, x2: ox + ln.x2 * s, y2: oy + ln.y2 * s,
+    }));
+  }
+  for (const r of pv.rects) {
+    const rr = svg("rect", {
+      x: ox + r.x * s, y: oy + r.y * s,
+      width: Math.max(2, r.w * s), height: Math.max(1.5, r.h * s), rx: 1,
+    });
+    if (r.fill) rr.setAttribute("fill", r.fill);
+    pg.appendChild(rr);
+  }
+  g.appendChild(pg);
+}
+
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 1.1;
@@ -336,9 +368,13 @@ let saveTimer = null;
 // Session-only; entries are { id, name }. The current diagram is not included.
 let breadcrumb = [];
 // Interface ports of referenced subdiagrams, keyed by subdiagram id:
-// subId -> [{ role: "in"|"out"|"dep", label }]. Filled by loadSubdiagramPorts
-// so container nodes can draw their ports without the sub being open.
+// subId -> [{ id, role: "in"|"out"|"dep", label }]. Filled by
+// loadSubdiagramPorts so container nodes can draw their ports without the sub
+// being open.
 let subPorts = new Map();
+// Geometric preview of each referenced subdiagram for the in-container minimap:
+// subId -> { rects, lines, bbox }.
+let subPreview = new Map();
 
 const HISTORY_LIMIT = 50;
 let past = [];
@@ -540,14 +576,16 @@ async function loadDiagram(id, opts = {}) {
 
 // ---------- subdiagrams ----------
 
-// Fetches the interface (port-tagged nodes) of every referenced subdiagram in
-// the current diagram, then re-renders so containers show their ports. Fresh
-// each load so edits to a subdiagram's interface show on return.
+// Fetches every referenced subdiagram in the current diagram and caches both
+// its interface ports (for the container's port discs) and a small geometric
+// preview (for the in-container minimap), then re-renders. Fresh each load so
+// edits to a subdiagram show on return.
 async function loadSubdiagramPorts() {
   const ids = [
     ...new Set(diagram.nodes.filter((n) => n.data.subdiagramId).map((n) => n.data.subdiagramId)),
   ];
   subPorts = new Map();
+  subPreview = new Map();
   await Promise.all(
     ids.map(async (sid) => {
       try {
@@ -558,12 +596,35 @@ async function loadSubdiagramPorts() {
             .filter((n) => n.data.port)
             .map((n) => ({ id: n.id, role: n.data.port, label: n.data.label || "" })),
         );
+        subPreview.set(sid, buildPreview(sd));
       } catch {
-        /* missing subdiagram → no ports */
+        /* missing subdiagram → no ports/preview */
       }
     }),
   );
   render();
+}
+
+// Distills a diagram into a tiny geometric preview: node rects (+ optional
+// fill) and edge center-lines, plus the overall bbox, for the in-container map.
+function buildPreview(d) {
+  const rects = [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const centers = new Map();
+  for (const n of d.nodes) {
+    const { w, h } = nodeSize(n);
+    rects.push({ x: n.position.x, y: n.position.y, w, h, fill: n.data.fill || "" });
+    centers.set(n.id, { x: n.position.x + w / 2, y: n.position.y + h / 2 });
+    minX = Math.min(minX, n.position.x); minY = Math.min(minY, n.position.y);
+    maxX = Math.max(maxX, n.position.x + w); maxY = Math.max(maxY, n.position.y + h);
+  }
+  const lines = [];
+  for (const e of d.edges) {
+    const a = centers.get(e.source), b = centers.get(e.target);
+    if (a && b) lines.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+  }
+  if (!rects.length) return { rects, lines, bbox: null };
+  return { rects, lines, bbox: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
 }
 
 // Adds a new interface node of the given role to a container's subdiagram, so
@@ -891,6 +952,9 @@ function render() {
     const { w, h } = nodeSize(n);
     const iw = iconWidth(n.kind);
     drawShape(g, nodeShape(n), w, h);
+    // Containers show a scaled minimap of their inside, with the label as a
+    // bottom caption (the body is the thumbnail).
+    if (n.data.subdiagramId) drawSubPreview(g, n, w, h);
     if (iw > 0) {
       const hasLabel = (n.data.label || "") !== "";
       const iconX = hasLabel ? (NODE_PAD_X - 2) : (w - ICON_SIZE) / 2;
@@ -921,7 +985,14 @@ function render() {
     let textCy = h / 2;
     if (shape === "tri-up")        textCy = h * 2 / 3;
     else if (shape === "tri-down") textCy = h / 3;
-    const t = svg("text", { x: textCx, y: textCy + 4, "text-anchor": "middle" });
+    // Containers caption their thumbnail at the bottom instead of centering.
+    if (n.data.subdiagramId) textCy = h - 11;
+    const t = svg("text", {
+      x: n.data.subdiagramId ? w / 2 : textCx,
+      y: textCy + 4,
+      "text-anchor": "middle",
+      class: n.data.subdiagramId ? "container-label" : "",
+    });
     t.textContent = n.data.label || "";
     g.appendChild(t);
 
@@ -1247,11 +1318,41 @@ function kindMenuItems(onPick) {
 // The shared "things you can add" list, used by both the + Add toolbar button
 // and the empty-canvas context menu so they stay in sync: every node kind plus
 // a one-step container.
-function addMenuItems(onPickKind, onPickContainer) {
+function addMenuItems(onPickKind, onPickContainer, onPickPort) {
   const items = kindMenuItems(onPickKind);
   items.push({ separator: true });
   items.push({ label: "Container (subdiagram)", action: onPickContainer });
+  // Interface ports: useful inside a subdiagram to declare what it receives
+  // (in), returns (out) or relies on (dep). They surface on any container.
+  items.push({
+    label: "Interface port ▸",
+    submenu: () => [
+      { label: "Input", action: () => onPickPort("in") },
+      { label: "Output", action: () => onPickPort("out") },
+      { label: "Dependency", action: () => onPickPort("dep") },
+    ],
+  });
   return items;
+}
+
+// Creates a node already tagged with an interface role (so it shows as a port
+// on any container referencing this diagram).
+function addPortNode(role, modelX, modelY) {
+  if (modelX === undefined) {
+    const rect = canvas.getBoundingClientRect();
+    const { x: vx, y: vy, zoom } = diagram.viewport;
+    modelX = (rect.width / 2 - vx) / zoom;
+    modelY = (rect.height / 2 - vy) / zoom;
+  }
+  const labels = { in: "input", out: "output", dep: "dependency" };
+  pushHistory();
+  diagram.nodes.push({
+    id: uid(),
+    position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
+    data: { label: labels[role], port: role },
+  });
+  save();
+  render();
 }
 
 addBtn.addEventListener("click", () => {
@@ -1259,7 +1360,7 @@ addBtn.addEventListener("click", () => {
   showContextMenu(
     rect.left,
     rect.bottom + 2,
-    addMenuItems(addAtViewportCenter, () => addContainer()),
+    addMenuItems(addAtViewportCenter, () => addContainer(), (role) => addPortNode(role)),
   );
 });
 
@@ -2064,6 +2165,7 @@ function emptyMenuItems(modelPos) {
     ...addMenuItems(
       (kind) => addBoxAt(modelPos.x, modelPos.y, kind),
       () => addContainer(modelPos.x, modelPos.y),
+      (role) => addPortNode(role, modelPos.x, modelPos.y),
     ),
     { separator: true },
     { label: "Tidy up", action: tidyUp },
