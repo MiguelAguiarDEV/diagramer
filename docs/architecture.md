@@ -133,12 +133,15 @@ a breadcrumb. Over MCP, `create_subdiagram` creates+links one.
 **Interface ports (function metaphor).** A subdiagram declares its interface the
 way a function signature does: inner nodes tagged with `data.port` =
 `in`/`out`/`dep` become ports on any container referencing that diagram —
-`in` left (entry), `out` right (return), `dep` bottom (a DB/API the inside
+`in` left (entry), `out` right (return), `dep` top (a DB/API the inside
 relies on). The interface is **inferred from the inside** (one source of truth):
 the container fetches the subdiagram's port-tagged nodes (cached frontend-side
-in `subPorts`) and draws a labelled disc per port; inner interface nodes carry
-an in/out/dep badge. v1 is visual — binding a parent edge to a *specific* inner
-port is **future work**; today edges connect to the container as a whole.
+in `subPorts`) and draws a disc per port (in/dep hollow, out filled); inner
+interface nodes carry an in/out/dep badge. Containers expose "+" affordances
+(add input on the left, add dependency on top) that create the matching
+interface node inside the subdiagram. v1 is visual — binding a parent edge to a
+*specific* inner port is **future work**; today edges connect to the container
+as a whole.
 
 ## Storage on disk
 

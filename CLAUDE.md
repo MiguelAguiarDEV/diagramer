@@ -100,11 +100,13 @@ to a node; populate it with `add_node`/`add_edge` using the returned id.
 A subdiagram has an **interface like a function signature**: tag inner nodes
 with `data.port` = `"in"` / `"out"` / `"dep"` and the container surfaces them as
 ports — `in` on the left (entry), `out` on the right (return), `dep` on the
-bottom (a DB/API the inside relies on). The interface is **inferred from the
+top (a DB/API the inside relies on). The interface is **inferred from the
 inside** (single source of truth): the container fetches the subdiagram's
-port-tagged nodes (cached in `subPorts`) and draws a labelled disc per port. v1
-is visual; edge↔port wiring (parent edges binding to a specific inner node) is
-future work.
+port-tagged nodes (cached in `subPorts`) and draws a disc per port — in/dep
+hollow ("plug here"), out filled. Containers show "+" affordances (left = add
+input, top = add dependency) that scaffold the matching interface node inside;
+the output appears on its own from inside. v1 is visual; edge↔port wiring
+(parent edges binding to a specific inner node) is future work.
 
 ## MCP tools (12)
 

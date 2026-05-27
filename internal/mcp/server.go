@@ -77,7 +77,7 @@ type addNodeInput struct {
 	Y         float64 `json:"y" jsonschema:"y position in model coords"`
 	Fill      string  `json:"fill,omitempty" jsonschema:"fill color as a CSS hex like #13315c (optional)"`
 	Stroke    string  `json:"stroke,omitempty" jsonschema:"border color as a CSS hex like #3b82f6 (optional)"`
-	Port      string  `json:"port,omitempty" jsonschema:"mark as this diagram's interface so it surfaces as a port on a container: 'in' (entry/left), 'out' (return/right), or 'dep' (dependency/bottom, e.g. a DB or API). Optional."`
+	Port      string  `json:"port,omitempty" jsonschema:"mark as this diagram's interface so it surfaces as a port on a container: 'in' (entry/left), 'out' (return/right), or 'dep' (dependency/top, e.g. a DB or API). Optional."`
 }
 
 type idOutput struct {

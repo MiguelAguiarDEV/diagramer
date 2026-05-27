@@ -49,9 +49,12 @@ it; use the breadcrumb in the title bar to navigate back out.
 
 A subdiagram works like a **function signature**: mark inner nodes via their
 context menu → **Interface** as **Input** (left), **Output** (right) or
-**Dependency** (bottom, e.g. a DB or API it relies on). The container then shows
-those as labelled ports on the matching edge — interface inferred from the
-inside, so you only maintain one place. Over MCP/JSON, set `data.port` to
+**Dependency** (top, e.g. a DB or API it relies on). The container shows those
+as labelled ports — inputs/deps hollow ("plug here"), output filled. Hover a
+container for **"+"** affordances to add an input (left) or dependency (top) in
+one click (they scaffold the matching node inside); the output appears on its
+own once something inside is tagged Output. Interface inferred from the inside,
+so you only maintain one place. Over MCP/JSON, set `data.port` to
 `"in"`/`"out"`/`"dep"` on the inner nodes.
 
 ## Tests
