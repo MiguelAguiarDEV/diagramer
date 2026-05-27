@@ -2,75 +2,87 @@
 
 ## Qué es
 
-`diagramer` es una herramienta local para crear diagramas que estructuran código y arquitectura: cajas etiquetadas conectadas con flechas dinámicas sobre un canvas infinito. Se distribuye como un único binario auto-contenido — sin Node, sin Docker, sin servicio externo.
+`diagramer` es una herramienta **local-first y AI-first** para crear diagramas
+que estructuran código y arquitectura: nodos etiquetados (cajas, formas, y
+stencils con icono) conectados con flechas sobre un canvas infinito. Se
+distribuye como un **único binario auto-contenido** — sin Node, sin Docker, sin
+base de datos, sin servicio externo.
 
-Un comando: `./diagramer`. Abre `localhost:7777` en el navegador. Editas. Cierras.
+Un comando: `./diagramer`. Abre `localhost:7777`. Editas. Cierras. El mismo
+binario corre como servidor MCP (`-mcp`) para que una IA construya y edite los
+diagramas con herramientas.
 
 ## Para quién
 
-Para mí (Miguel) y, por extensión, cualquier desarrollador que quiera bocetar arquitectura, dependencias entre módulos o flujos de datos sin pelearse con Excalidraw, Figma, Mermaid, ni servicios SaaS.
+Para Miguel y cualquier desarrollador que quiera bocetar arquitectura,
+dependencias o flujos de datos sin pelearse con Excalidraw, Figma o Mermaid, ni
+con servicios SaaS — y que quiera que una IA pueda generar y manipular esos
+diagramas directamente.
 
 ## Problema que resuelve
 
-- Los diagramas en Mermaid/PlantUML son texto-only y poco fluidos para iterar.
-- Excalidraw es genérico y no estructura datos.
+- Mermaid/PlantUML son texto-only y poco fluidos para iterar visualmente.
+- Excalidraw es genérico y no estructura datos (grafo consultable).
 - Figma/Lucid son SaaS, pesados y exigen cuenta.
-- Whiteboards locales no persisten en formato consultable.
+- Ninguno está pensado para que una IA edite el diagrama de forma nativa.
 
-`diagramer` apunta al hueco: estructura grafo (nodos + aristas), persistencia en JSON inspectable, sin nube, sin login, sin build pipeline al usar.
+`diagramer` ocupa ese hueco: grafo estructurado (nodos + aristas), persistencia
+en JSON inspectable y diff-able, sin nube ni login, y una superficie MCP para IA.
 
-## Objetivo
+## Objetivos
 
-Que en menos de 5 segundos desde lanzar el binario el usuario esté creando nodos y conectándolos con flechas, y que el diagrama persista automáticamente sin que tenga que pulsar nada.
-
-### Criterios de éxito v1
-
-- Arranque del binario en <100 ms en hardware moderno.
-- Crear nodo, conectarlo, mover, renombrar, borrar — sin tocar el botón "guardar".
-- Listado y cambio entre múltiples diagramas.
-- JSON resultante legible y diff-able en git.
-- Tamaño del binario <30 MB.
+- En <5 s desde lanzar el binario, crear nodos y conectarlos; autosave sin
+  pulsar nada.
+- Que una IA, vía MCP, pueda crear un diagrama completo (incl. arquitectura
+  anidada) que el usuario vea al refrescar el navegador.
+- JSON resultante legible y versionable en git. Binario <30 MB.
 
 ## Alcance
 
-### En v1 (este PRD)
+### Implementado
 
-- Multi-diagrama. Un archivo JSON por diagrama. Lista, crear, abrir, renombrar, borrar.
-- Canvas infinito (pan/zoom).
-- Un único tipo de nodo: caja con texto editable inline.
-- Aristas dirigidas con cabeza de flecha. Estilo bezier por defecto.
-- Autosave debounced (~500 ms).
-- Distribución: binario único Go con frontend React/React Flow embebido.
+- Multi-diagrama: listar, crear, abrir, renombrar, borrar (un JSON por diagrama).
+- Canvas infinito (pan/zoom) + minimapa de navegación.
+- Tipos de nodo: rectángulo, formas geométricas (círculo, elipse, rombo,
+  triángulos) e iconos (database, backend, frontend, queue, cache, user, cloud).
+  Auto-resize al texto.
+- Aristas dirigidas bezier, con etiqueta opcional y handle para curvarlas.
+- Edición inline, multiselección (shift + lazo), multi-move, alineación,
+  colores por nodo, undo/redo.
+- "Tidy up" (auto-layout por profundidad de aristas).
+- **Subdiagramas**: un nodo contenedor referencia otro diagrama como interior,
+  navegable con breadcrumb.
+- Temas claro (vainilla) / oscuro, persistidos.
+- Import/Export JSON, export SVG/PNG.
+- Autosave con detección de conflicto por ETag.
+- **MCP**: 12 herramientas para edición por IA.
 
-### Fuera de v1 (extensiones reconocidas)
+### Futuro reconocido
 
-- Tipos de nodo predefinidos o custom (color, icono, forma).
-- Etiquetas en aristas.
-- Multiselect, copy-paste, undo/redo.
-- Import code-aware: parsear un repo y generar nodos a partir del AST. Reservado v2+.
-- Export a PNG/SVG/Mermaid.
-- Multi-usuario, sync, login, nube. **No es objetivo nunca.**
+- Puertos de entrada/salida en subdiagramas con mapeo a nodos internos.
+- Code-aware import (parsear un repo → diagrama).
+- Ocultar subdiagramas referenciados de la lista raíz.
+
+### Out of scope (nunca)
+
+- Multi-usuario, sync, login, nube.
+- Cualquier feature que requiera servidor remoto o base de datos.
+- Telemetría / analytics.
+- Cualquier cosa que rompa "un comando, un binario, un proceso".
 
 ## Restricciones
 
-- **KISS.** Cada decisión se justifica por simplicidad antes que por flexibilidad anticipada.
-- **Single binary.** Cero dependencias externas en runtime. Frontend buildeado y embebido vía `go:embed`.
+- **KISS.** Simplicidad antes que flexibilidad anticipada.
+- **Single binary.** Cero dependencias en runtime; frontend embebido vía `go:embed`.
 - **Local-first.** Datos en disco del usuario, en JSON. Cero red más allá de `localhost`.
-- **Modularidad.** Un archivo/paquete por módulo en Go. Cada módulo expone una interfaz pequeña, fácil de mockear y de extender.
-- **No telemetría, no login, no analytics.**
+- **AI-first.** La superficie MCP es ciudadana de primera clase, no un añadido.
 
 ## Stack
 
 | Capa | Elección |
 |---|---|
-| Frontend | React + React Flow (xyflow) |
-| Bundler | Vite |
+| Frontend | Vanilla SVG + JS (sin framework ni bundler) |
 | Backend | Go (stdlib `net/http` + `embed`) |
-| Storage | Archivos JSON en `./data/diagrams/<id>.json` |
-| Distribución | `go build` produce binario único |
-
-## Out of scope explícito
-
-- Cualquier feature que requiera servidor remoto.
-- Cualquier feature que requiera base de datos.
-- Cualquier feature que rompa el "un comando, un binario, un proceso".
+| AI | Servidor MCP sobre stdio (MCP Go SDK) |
+| Storage | Archivos JSON en `./data/diagrams/<id>.json` + `index.json` |
+| Distribución | `go build` produce un binario único |

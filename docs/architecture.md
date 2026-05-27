@@ -1,83 +1,69 @@
 # Architecture — diagramer
 
-## Diagrama de cajas
+## Box diagram
 
 ```
-┌──────────────────────────── diagramer (binario único) ─────────────────────────────┐
-│                                                                                    │
-│   ┌─────────────────────────┐        ┌──────────────────────────────────────────┐  │
-│   │  net/http server :7777  │ ◄────► │  embed.FS (frontend buildeado: dist/)    │  │
-│   │  (cmd/diagramer)        │        │  GET /  →  index.html, /assets/*         │  │
-│   └────────┬────────────────┘        └──────────────────────────────────────────┘  │
-│            │                                                                       │
-│            │  /api/diagrams[/:id]                                                  │
-│            ▼                                                                       │
-│   ┌─────────────────────────┐        ┌──────────────────────────────────────────┐  │
-│   │  internal/server        │ ──►    │  internal/diagrams (Service)             │  │
-│   │  (http handlers, mux)   │        │  validación + reglas de negocio          │  │
-│   └─────────────────────────┘        └────────┬─────────────────────────────────┘  │
-│                                               │                                    │
-│                                               ▼                                    │
-│                                      ┌──────────────────────────────────────────┐  │
-│                                      │  internal/storage (Repository interface) │  │
-│                                      │  JSONFileRepo: ./data/diagrams/*.json    │  │
-│                                      └────────┬─────────────────────────────────┘  │
-│                                               │ atomic write (.tmp + rename)       │
-│                                               ▼                                    │
-│                                      ┌──────────────────────────────────────────┐  │
-│                                      │  ./data/diagrams/<uuid>.json             │  │
-│                                      │  ./data/index.json (lista + metadata)    │  │
-│                                      └──────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────── diagramer (single binary) ─────────────────────────────┐
+│                                                                                     │
+│  HTTP mode (default)                          MCP mode (-mcp)                        │
+│  ┌─────────────────────────┐                  ┌──────────────────────────────────┐  │
+│  │ net/http server :7777   │                  │ internal/mcp (stdio JSON-RPC)    │  │
+│  │ internal/server         │                  │ 12 tools over the MCP Go SDK     │  │
+│  │ + embedded web/ (SVG/JS)│                  └────────────────┬─────────────────┘  │
+│  └────────────┬────────────┘                                   │                    │
+│               │  /api/diagrams[/{id}]                          │                    │
+│               ▼                                                ▼                    │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐ │
+│  │ internal/diagrams (Service): validation, ETag/If-Match, business rules         │ │
+│  └────────────────────────────────────┬───────────────────────────────────────────┘ │
+│                                        ▼                                             │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐ │
+│  │ internal/storage (Repository): JSONFileRepo, atomic writes, index.json         │ │
+│  └────────────────────────────────────┬───────────────────────────────────────────┘ │
+│                                        ▼                                             │
+│             ./data/index.json  +  ./data/diagrams/<uuid>.json                       │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Layout del repo
+Both entrypoints (HTTP and MCP) sit on top of the same `Service` → `Repository`
+stack and the same `./data` directory, so an AI editing over MCP and a human
+editing in the browser see the same diagrams.
+
+## Repo layout
 
 ```
 diagramer/
-├── cmd/diagramer/             # punto de entrada del binario
-│   └── main.go                # bootstrapping: server + embed
+├── cmd/diagramer/
+│   ├── main.go            # flags (-addr, -data, -mcp), wiring of repo/service/server|mcp
+│   ├── embed.go           # //go:embed web → http static handler
+│   └── web/               # the entire frontend (embedded at compile time)
+│       ├── index.html     # markup + anti-FOUC theme bootstrap
+│       ├── app.js         # all behavior: render(), interaction, undo, export, theme
+│       └── style.css      # CSS custom properties; dark base + light (vanilla) theme
 ├── internal/
-│   ├── server/                # HTTP layer
-│   │   ├── server.go          # interface Server, mux, middleware
-│   │   ├── handlers.go        # handlers REST
-│   │   └── server_test.go
-│   ├── diagrams/              # dominio
-│   │   ├── service.go         # interface Service
-│   │   ├── model.go           # Diagram, Node, Edge
-│   │   └── service_test.go
-│   ├── storage/               # persistencia
-│   │   ├── repository.go      # interface Repository
-│   │   ├── jsonfile.go        # JSONFileRepo
-│   │   └── jsonfile_test.go
-│   └── codeimport/            # FUTURO v2 — placeholder, no en v1
-├── web/                       # frontend
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── DiagramCanvas.tsx  # React Flow
-│   │   ├── DiagramList.tsx
-│   │   ├── api.ts
-│   │   └── main.tsx
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.ts
-├── web/dist/                  # output de `vite build` (gitignored, embebido por Go)
-├── docs/                      # PRD, architecture, tasks
-├── Makefile                   # build, dev, test
-├── go.mod
-└── .gitignore
+│   ├── server/            # HTTP: server.go (mux, middleware), handlers.go
+│   ├── diagrams/          # domain: model.go, service.go, service_test.go
+│   ├── storage/           # jsonfile.go (JSONFileRepo), repository.go, tests
+│   └── mcp/               # server.go (MCP tools) + server_test.go
+├── tests/                 # Playwright E2E (helpers.ts, layout.spec.ts)
+├── docs/                  # PRD, architecture, tasks
+├── CLAUDE.md              # agent orientation
+├── Makefile               # build, run, test, test-e2e, clean
+└── go.mod
 ```
 
-## Interfaces clave (Go)
+Frontend is vanilla SVG/JS — no React, no Vite, no bundler. (An earlier
+version used React Flow; it was replaced.) Adding a backend module = a new
+package under `internal/` with a small interface, wired in `main.go`.
 
-Cada módulo expone una interfaz pequeña. Tests usan implementación in-memory; producción usa la implementación concreta.
+## Key interfaces (Go)
 
 ```go
 // internal/storage/repository.go
 type Repository interface {
-    List(ctx context.Context) ([]DiagramMeta, error)
-    Get(ctx context.Context, id string) (*Diagram, error)
-    Save(ctx context.Context, d *Diagram) error
+    List(ctx context.Context) ([]diagrams.DiagramMeta, error)
+    Get(ctx context.Context, id string) (*diagrams.Diagram, error)
+    Save(ctx context.Context, d *diagrams.Diagram) error
     Delete(ctx context.Context, id string) error
 }
 
@@ -86,117 +72,113 @@ type Service interface {
     List(ctx context.Context) ([]DiagramMeta, error)
     Get(ctx context.Context, id string) (*Diagram, error)
     Create(ctx context.Context, name string) (*Diagram, error)
-    Update(ctx context.Context, d *Diagram) error
-    Rename(ctx context.Context, id, newName string) error
+    // Update writes d. When ifMatch is non-empty it must equal the current
+    // server-side ETag or ErrConflict is returned; pass "" to bypass.
+    Update(ctx context.Context, d *Diagram, ifMatch string) (*Diagram, error)
+    Rename(ctx context.Context, id, newName string) (*Diagram, error)
     Delete(ctx context.Context, id string) error
-}
-
-// internal/server/server.go
-type Server interface {
-    Start(addr string) error
-    Stop(ctx context.Context) error
 }
 ```
 
-Añadir un módulo nuevo (p.ej. `codeimport`) = nuevo paquete bajo `internal/`, nueva interfaz, wiring en `cmd/diagramer/main.go`. Sin tocar el resto.
-
-## Modelo de datos
+## Data model
 
 ```go
-// Diagram es la unidad de persistencia: un archivo JSON.
 type Diagram struct {
-    ID        string    `json:"id"`         // UUIDv7
+    ID        string    `json:"id"`
     Name      string    `json:"name"`
     Nodes     []Node    `json:"nodes"`
     Edges     []Edge    `json:"edges"`
-    Viewport  Viewport  `json:"viewport"`   // pan + zoom persistido
+    Viewport  Viewport  `json:"viewport"`
     CreatedAt time.Time `json:"createdAt"`
     UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Node struct {
-    ID       string   `json:"id"`           // nanoid local
+    ID       string   `json:"id"`
+    Kind     string   `json:"kind,omitempty"` // rect|circle|ellipse|rhombus|tri-up|tri-down|database|backend|frontend|queue|cache|user|cloud
     Position Position `json:"position"`
     Data     NodeData `json:"data"`
 }
-type Position struct{ X, Y float64 }
-type NodeData struct{ Label string `json:"label"` }
+
+type NodeData struct {
+    Label        string `json:"label"`
+    Fill         string `json:"fill,omitempty"`         // CSS hex; empty → theme default
+    Stroke       string `json:"stroke,omitempty"`
+    SubdiagramID string `json:"subdiagramId,omitempty"` // container → another diagram
+}
 
 type Edge struct {
-    ID     string `json:"id"`
-    Source string `json:"source"`            // node id
-    Target string `json:"target"`
+    ID        string     `json:"id"`
+    Source    string     `json:"source"`
+    Target    string     `json:"target"`
+    Label     string     `json:"label,omitempty"`
+    Curvature *Curvature `json:"curvature,omitempty"` // drag-handle offset from midpoint
 }
 
 type Viewport struct{ X, Y, Zoom float64 }
-
-// DiagramMeta es la fila ligera de la lista (no carga nodes/edges).
-type DiagramMeta struct {
-    ID        string    `json:"id"`
-    Name      string    `json:"name"`
-    UpdatedAt time.Time `json:"updatedAt"`
-    NodeCount int       `json:"nodeCount"`
-    EdgeCount int       `json:"edgeCount"`
-}
 ```
 
-El JSON producido es compatible 1:1 con el shape de React Flow (`{nodes, edges, viewport}`), minimiza mapping en el frontend.
+The JSON mirrors React Flow's `{nodes, edges, viewport}` shape. `NodeData` is
+an open struct that grows without migrations — old JSON stays valid.
 
-## Storage en disco
+### Subdiagrams (composition by reference)
+
+A node with `SubdiagramID` is a **container**: it points at another diagram
+(by ID) that is its nested interior. The subdiagram is a normal diagram —
+persisted, listed, and editable like any other, and reusable from multiple
+containers. The frontend renders a badge, drills in on double-click, and shows
+a breadcrumb. Over MCP, `create_subdiagram` creates+links one. Fine-grained
+input/output port mapping between a container and its inner nodes is **future
+work** — today edges connect to the container node as a whole.
+
+## Storage on disk
 
 ```
 ./data/
 ├── index.json                  # [{id, name, updatedAt, nodeCount, edgeCount}, ...]
 └── diagrams/
-    ├── <uuid>.json
     └── <uuid>.json
 ```
 
-- **Escritura atómica:** `Save` escribe a `<uuid>.json.tmp` y renombra. `index.json` se reescribe completo en cada save (rápido y simple — para v1 con N<1000 diagramas es trivial).
-- **Lectura:** `List` lee `index.json`. `Get(id)` lee el archivo concreto. Sin caché en v1.
-- **IDs:** UUIDv7 (ordenado por tiempo, evita colisiones, debug-friendly).
+- **Atomic write:** `Save` writes `<uuid>.json.tmp` then renames; `index.json`
+  is rewritten whole each save (trivial for N<1000).
+- **Concurrency:** `Service.Update` supports optimistic concurrency via ETag.
+  `PUT` with a stale `If-Match` returns `412`; the frontend offers reload.
 
-## API HTTP
+## HTTP API
 
-| Método | Ruta | Cuerpo | Respuesta |
+| Method | Route | Body | Response |
 |---|---|---|---|
+| `GET` | `/api/health` | — | ok |
 | `GET` | `/api/diagrams` | — | `[]DiagramMeta` |
-| `POST` | `/api/diagrams` | `{name}` | `Diagram` (vacío, recién creado) |
-| `GET` | `/api/diagrams/:id` | — | `Diagram` |
-| `PUT` | `/api/diagrams/:id` | `Diagram` | `Diagram` (autosave, replace completo) |
-| `PATCH` | `/api/diagrams/:id` | `{name}` | `DiagramMeta` (rename) |
-| `DELETE` | `/api/diagrams/:id` | — | `204` |
-| `GET` | `/*` | — | frontend (embed.FS) |
+| `POST` | `/api/diagrams` | `{name}` | `Diagram` (new, empty) |
+| `GET` | `/api/diagrams/{id}` | — | `Diagram` (+ `ETag`) |
+| `PUT` | `/api/diagrams/{id}` | `Diagram` | `Diagram` (autosave; honors `If-Match`) |
+| `PATCH` | `/api/diagrams/{id}` | `{name}` | `Diagram` (rename) |
+| `DELETE` | `/api/diagrams/{id}` | — | `204` |
+| `GET` | `/*` | — | embedded frontend |
 
-Sin auth. Localhost only — el server bindea a `127.0.0.1:7777` por defecto.
+No auth. Binds `127.0.0.1:7777` by default.
 
-## Build pipeline
+## MCP server
+
+`internal/mcp` wraps the same `Service` and exposes 12 tools over stdio using
+the official MCP Go SDK: `list_diagrams`, `get_diagram`, `create_diagram`,
+`rename_diagram`, `delete_diagram`, `add_node`, `update_node`, `delete_node`,
+`add_edge`, `update_edge`, `delete_edge`, `create_subdiagram`. Run with
+`./diagramer -mcp`. See `internal/mcp/server_test.go` for the exercised flows.
+
+## Build
 
 ```
-make build:
-  cd web && npm install && npm run build      # produce web/dist/
-  cd .. && go build -o diagramer ./cmd/diagramer
+make build   # go build -o diagramer ./cmd/diagramer   (frontend is embedded, no JS build)
+make test    # go test ./cmd/... ./internal/...
+make test-e2e# Playwright against a fresh go-run instance
 ```
 
-Go embebe `web/dist/` con:
+## Future / deferred
 
-```go
-//go:embed all:web/dist
-var frontendFS embed.FS
-```
-
-`make dev`: arranca Vite en `:5173` con proxy a Go en `:7777`. Hot reload del frontend, recompila Go a mano.
-
-## Decisiones diferidas (no bloquean v1)
-
-- Soporte de undo/redo — v2.
-- Etiquetas en aristas — v2.
-- Tipos de nodo — v2.
-- Code-aware import — v2+.
-- Export PNG/SVG — v2+.
-
-## Extension hooks reconocidos
-
-- `internal/codeimport/`: nuevo paquete, ingiere AST/tree-sitter y produce `Diagram`.
-- `NodeData`: campo abierto que puede crecer (`type`, `color`, `icon`) sin migración (los archivos viejos siguen siendo válidos JSON).
-- `Repository`: cambiar a SQLite o BoltDB en el futuro = nueva implementación de la interfaz, sin tocar `Service`/`Server`.
+- Subdiagram input/output ports with explicit inner-node mapping.
+- Hiding referenced subdiagrams from the root list.
+- Code-aware import (parse a repo → diagram).
+- Alternate storage backend (SQLite/Bolt) = new `Repository` impl only.

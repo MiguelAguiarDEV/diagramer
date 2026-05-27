@@ -81,7 +81,7 @@ func TestToolsAreRegistered(t *testing.T) {
 	want := []string{
 		"list_diagrams", "get_diagram", "create_diagram", "rename_diagram",
 		"delete_diagram", "add_node", "update_node", "delete_node",
-		"add_edge", "update_edge", "delete_edge",
+		"add_edge", "update_edge", "delete_edge", "create_subdiagram",
 	}
 	for _, w := range want {
 		if !got[w] {
@@ -209,6 +209,52 @@ func TestDeleteEdgeKeepsNodes(t *testing.T) {
 	if len(got.Diagram.Nodes) != 2 || len(got.Diagram.Edges) != 0 {
 		t.Fatalf("after delete_edge: %d nodes / %d edges, want 2 / 0",
 			len(got.Diagram.Nodes), len(got.Diagram.Edges))
+	}
+}
+
+// TestSubdiagramComposition mirrors how an AI builds nested architecture:
+// create a container node, give it a subdiagram, then populate that subdiagram
+// using its own ID.
+func TestSubdiagramComposition(t *testing.T) {
+	cs := newTestSession(t)
+
+	parent := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "System"}).Diagram.ID
+	box := callTool[idOutput](t, cs, "add_node", map[string]any{
+		"diagram_id": parent, "kind": "rect", "label": "Payments", "x": 0.0, "y": 0.0,
+	}).ID
+
+	// Link a fresh subdiagram to the node.
+	subID := callTool[idOutput](t, cs, "create_subdiagram", map[string]any{
+		"diagram_id": parent, "node_id": box, "name": "Payments internals",
+	}).ID
+	if subID == "" || subID == parent {
+		t.Fatalf("bad subdiagram id: %q (parent %q)", subID, parent)
+	}
+
+	// The parent node now references it.
+	pg := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": parent})
+	if pg.Diagram.Nodes[0].Data.SubdiagramID != subID {
+		t.Fatalf("node not linked: got %q, want %q", pg.Diagram.Nodes[0].Data.SubdiagramID, subID)
+	}
+
+	// Populate the subdiagram via its own ID.
+	g := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": subID, "label": "Gateway", "x": 0.0, "y": 0.0}).ID
+	l := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": subID, "label": "Ledger", "x": 200.0, "y": 0.0}).ID
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": subID, "source": g, "target": l})
+
+	sg := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": subID})
+	if len(sg.Diagram.Nodes) != 2 || len(sg.Diagram.Edges) != 1 {
+		t.Fatalf("subdiagram contents: %d nodes / %d edges, want 2 / 1",
+			len(sg.Diagram.Nodes), len(sg.Diagram.Edges))
+	}
+
+	// Unlink via update_node (empty string clears the reference).
+	callTool[okOutput](t, cs, "update_node", map[string]any{
+		"diagram_id": parent, "node_id": box, "subdiagram_id": "",
+	})
+	pg = callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": parent})
+	if pg.Diagram.Nodes[0].Data.SubdiagramID != "" {
+		t.Errorf("subdiagram link not cleared: %q", pg.Diagram.Nodes[0].Data.SubdiagramID)
 	}
 }
 

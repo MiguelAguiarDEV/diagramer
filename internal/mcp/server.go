@@ -90,8 +90,15 @@ type updateNodeInput struct {
 	Label     *string  `json:"label,omitempty" jsonschema:"new label (omit to keep)"`
 	X         *float64 `json:"x,omitempty" jsonschema:"new x (omit to keep)"`
 	Y         *float64 `json:"y,omitempty" jsonschema:"new y (omit to keep)"`
-	Fill      *string  `json:"fill,omitempty" jsonschema:"new fill hex; empty string clears it (omit to keep)"`
-	Stroke    *string  `json:"stroke,omitempty" jsonschema:"new border hex; empty string clears it (omit to keep)"`
+	Fill         *string `json:"fill,omitempty" jsonschema:"new fill hex; empty string clears it (omit to keep)"`
+	Stroke       *string `json:"stroke,omitempty" jsonschema:"new border hex; empty string clears it (omit to keep)"`
+	SubdiagramID *string `json:"subdiagram_id,omitempty" jsonschema:"link this node to a subdiagram by ID; empty string unlinks (omit to keep)"`
+}
+
+type createSubdiagramInput struct {
+	DiagramID string `json:"diagram_id" jsonschema:"ID of the parent diagram"`
+	NodeID    string `json:"node_id" jsonschema:"ID of the node to turn into a container"`
+	Name      string `json:"name,omitempty" jsonschema:"name for the new subdiagram (optional)"`
 }
 
 type deleteNodeInput struct {
@@ -159,6 +166,11 @@ func (s *Server) registerTools() {
 		Name:        "delete_node",
 		Description: "Delete a node and any edges that reference it.",
 	}, s.deleteNode)
+
+	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
+		Name:        "create_subdiagram",
+		Description: "Create a new diagram and link it as the subdiagram of an existing node, making that node a navigable container. Returns the new subdiagram's ID; populate it with add_node/add_edge using that ID to build a nested architecture.",
+	}, s.createSubdiagram)
 
 	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
 		Name:        "add_edge",
@@ -264,6 +276,9 @@ func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 			if in.Stroke != nil {
 				d.Nodes[i].Data.Stroke = *in.Stroke
 			}
+			if in.SubdiagramID != nil {
+				d.Nodes[i].Data.SubdiagramID = *in.SubdiagramID
+			}
 			found = true
 			break
 		}
@@ -300,6 +315,40 @@ func (s *Server) deleteNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in d
 		return nil, okOutput{}, err
 	}
 	return nil, okOutput{OK: true}, nil
+}
+
+func (s *Server) createSubdiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, in createSubdiagramInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	parent, err := s.svc.Get(ctx, in.DiagramID)
+	if err != nil {
+		return nil, idOutput{}, err
+	}
+	idx := -1
+	for i := range parent.Nodes {
+		if parent.Nodes[i].ID == in.NodeID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, idOutput{}, fmt.Errorf("node %q not found in diagram %q", in.NodeID, in.DiagramID)
+	}
+	name := in.Name
+	if name == "" {
+		label := parent.Nodes[idx].Data.Label
+		if label == "" {
+			label = "Container"
+		}
+		name = label + " — inside"
+	}
+	sub, err := s.svc.Create(ctx, name)
+	if err != nil {
+		return nil, idOutput{}, err
+	}
+	parent.Nodes[idx].Data.SubdiagramID = sub.ID
+	if _, err := s.svc.Update(ctx, parent, ""); err != nil {
+		return nil, idOutput{}, err
+	}
+	return nil, idOutput{ID: sub.ID}, nil
 }
 
 func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addEdgeInput) (*mcpsdk.CallToolResult, idOutput, error) {
