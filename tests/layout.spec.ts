@@ -437,6 +437,46 @@ test("container '+' adds an input port and scaffolds the inside", async ({
   expect(sd.nodes.filter((n: any) => n.data.port === "in").length).toBe(1);
 });
 
+test("dragging from a container port wires an edge bound to that port", async ({
+  page,
+  request,
+}) => {
+  const subId = await createDiagram(
+    request,
+    "Svc inside",
+    [{ id: "i1", position: { x: 0, y: 0 }, data: { label: "arg", port: "in" } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  const parentId = await createDiagram(
+    request,
+    "Wire",
+    [
+      { id: "box", kind: "rect", position: { x: 320, y: 150 }, data: { label: "Service", subdiagramId: subId } },
+      mkNode("ext", "rect", "Caller", 60, 160),
+    ],
+    [],
+    { x: 80, y: 80, zoom: 1 },
+  );
+  await openDiagram(page, parentId);
+  await page.waitForSelector(".node.container .port.port-in circle", { timeout: 5000 });
+  await page.waitForTimeout(150);
+
+  const pb = (await page.locator(".node.container .port.port-in circle").boundingBox())!;
+  const ext = (await page.locator('#nodes .node[data-id="ext"]').boundingBox())!;
+  await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(ext.x + ext.width / 2, ext.y + ext.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(500); // let the debounced save flush
+  await page.screenshot({ path: `${SHOTS}/20-port-wired.png` });
+
+  const d = await (await request.get(`/api/diagrams/${parentId}`)).json();
+  const wired = d.edges.find((e: any) => e.sourcePort === "i1" || e.targetPort === "i1");
+  expect(wired).toBeTruthy();
+  expect(wired.source === "box" || wired.target === "box").toBe(true);
+});
+
 test("container node opens its subdiagram and breadcrumb navigates back", async ({
   page,
   request,

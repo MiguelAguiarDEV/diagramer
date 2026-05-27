@@ -109,10 +109,12 @@ type deleteNodeInput struct {
 }
 
 type addEdgeInput struct {
-	DiagramID string `json:"diagram_id" jsonschema:"diagram ID"`
-	Source    string `json:"source" jsonschema:"source node ID"`
-	Target    string `json:"target" jsonschema:"target node ID"`
-	Label     string `json:"label,omitempty" jsonschema:"edge label (optional)"`
+	DiagramID  string `json:"diagram_id" jsonschema:"diagram ID"`
+	Source     string `json:"source" jsonschema:"source node ID"`
+	Target     string `json:"target" jsonschema:"target node ID"`
+	SourcePort string `json:"source_port,omitempty" jsonschema:"bind the source end to a specific interface port: the id of a port-tagged node inside the source container's subdiagram. Optional."`
+	TargetPort string `json:"target_port,omitempty" jsonschema:"bind the target end to a specific interface port: the id of a port-tagged node inside the target container's subdiagram. Optional."`
+	Label      string `json:"label,omitempty" jsonschema:"edge label (optional)"`
 }
 
 type updateEdgeInput struct {
@@ -362,10 +364,12 @@ func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addE
 		return nil, idOutput{}, err
 	}
 	edge := diagrams.Edge{
-		ID:     uuid.NewString(),
-		Source: in.Source,
-		Target: in.Target,
-		Label:  in.Label,
+		ID:         uuid.NewString(),
+		Source:     in.Source,
+		Target:     in.Target,
+		SourcePort: in.SourcePort,
+		TargetPort: in.TargetPort,
+		Label:      in.Label,
 	}
 	d.Edges = append(d.Edges, edge)
 	if _, err := s.svc.Update(ctx, d, ""); err != nil {
