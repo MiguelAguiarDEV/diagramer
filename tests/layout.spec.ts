@@ -463,6 +463,57 @@ test("container shows a scaled minimap of its inside", async ({ page, request })
   expect(lines).toBe(2); // one per inner edge
 });
 
+test("output port of one container wires to the input port of another", async ({
+  page,
+  request,
+}) => {
+  const subA = await createDiagram(
+    request,
+    "A inside",
+    [{ id: "o1", position: { x: 0, y: 0 }, data: { label: "result", port: "out" } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  const subB = await createDiagram(
+    request,
+    "B inside",
+    [{ id: "i1", position: { x: 0, y: 0 }, data: { label: "arg", port: "in" } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  const parentId = await createDiagram(
+    request,
+    "Chain",
+    [
+      { id: "A", kind: "rect", position: { x: 120, y: 150 }, data: { label: "Producer", subdiagramId: subA } },
+      { id: "B", kind: "rect", position: { x: 460, y: 150 }, data: { label: "Consumer", subdiagramId: subB } },
+    ],
+    [],
+    { x: 60, y: 60, zoom: 1 },
+  );
+  await openDiagram(page, parentId);
+  await page.waitForSelector('.node[data-id="A"] .port.port-out circle', { timeout: 5000 });
+  await page.waitForSelector('.node[data-id="B"] .port.port-in circle', { timeout: 5000 });
+  await page.waitForTimeout(150);
+
+  const out = (await page.locator('.node[data-id="A"] .port.port-out circle').boundingBox())!;
+  const inp = (await page.locator('.node[data-id="B"] .port.port-in circle').boundingBox())!;
+  await page.mouse.move(out.x + out.width / 2, out.y + out.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(inp.x + inp.width / 2, inp.y + inp.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${SHOTS}/22-port-to-port.png` });
+
+  const d = await (await request.get(`/api/diagrams/${parentId}`)).json();
+  const e = d.edges[0];
+  expect(d.edges.length).toBe(1);
+  expect(e.source).toBe("A");
+  expect(e.target).toBe("B");
+  expect(e.sourcePort).toBe("o1");
+  expect(e.targetPort).toBe("i1");
+});
+
 test("renaming a container port from outside writes through to the inside", async ({
   page,
   request,
