@@ -41,6 +41,11 @@ Diagrams are persisted as JSON under `./data` (configurable via `-data`).
 
 ## Subdiagrams
 
+The sidebar splits into **Diagrams** (top-level) and **Subdiagrams** (a library
+of reusable components); each item expands to show the subdiagrams it contains
+(recursive references are allowed). New subdiagrams land in the library; right-
+click any item to **Convert to subdiagram / Convert to diagram**.
+
 Any node can reference another diagram as its interior, so a box can hold its
 own mini-architecture (composition by reference — the subdiagram is a normal,
 reusable diagram). Use **+ Add → Container (subdiagram)** (or right-click a node

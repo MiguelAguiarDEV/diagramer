@@ -5,10 +5,15 @@ import "time"
 // Diagram is the unit of persistence. One file per Diagram.
 // Shape is compatible 1:1 with React Flow's {nodes, edges, viewport}.
 type Diagram struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Nodes     []Node    `json:"nodes"`
-	Edges     []Edge    `json:"edges"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Nodes []Node `json:"nodes"`
+	Edges []Edge `json:"edges"`
+	// Component marks the diagram as a reusable subdiagram (a building block),
+	// so the UI lists it under the components library instead of the top-level
+	// diagrams. It's only a role/category — any diagram can be used as a
+	// subdiagram regardless.
+	Component bool      `json:"component,omitempty"`
 	Viewport  Viewport  `json:"viewport"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -72,21 +77,40 @@ type Viewport struct {
 }
 
 // DiagramMeta is the lightweight row used in list views.
-// Does not carry nodes/edges to keep listings cheap.
+// Does not carry nodes/edges to keep listings cheap, but does carry the set of
+// referenced subdiagram ids so the sidebar can build the "contains" tree
+// without loading every diagram.
 type DiagramMeta struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	NodeCount int       `json:"nodeCount"`
-	EdgeCount int       `json:"edgeCount"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	NodeCount   int       `json:"nodeCount"`
+	EdgeCount   int       `json:"edgeCount"`
+	Component   bool      `json:"component,omitempty"`
+	Subdiagrams []string  `json:"subdiagrams,omitempty"`
 }
 
 func NewDiagramMeta(d *Diagram) DiagramMeta {
+	var subs []string
+	seen := map[string]struct{}{}
+	for i := range d.Nodes {
+		sid := d.Nodes[i].Data.SubdiagramID
+		if sid == "" {
+			continue
+		}
+		if _, ok := seen[sid]; ok {
+			continue
+		}
+		seen[sid] = struct{}{}
+		subs = append(subs, sid)
+	}
 	return DiagramMeta{
-		ID:        d.ID,
-		Name:      d.Name,
-		UpdatedAt: d.UpdatedAt,
-		NodeCount: len(d.Nodes),
-		EdgeCount: len(d.Edges),
+		ID:          d.ID,
+		Name:        d.Name,
+		UpdatedAt:   d.UpdatedAt,
+		NodeCount:   len(d.Nodes),
+		EdgeCount:   len(d.Edges),
+		Component:   d.Component,
+		Subdiagrams: subs,
 	}
 }

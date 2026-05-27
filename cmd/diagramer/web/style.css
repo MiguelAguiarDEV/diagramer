@@ -127,8 +127,31 @@ body {
   font-size: 13px;
   color: var(--text-list);
 }
-#diagram-list li:hover { background: var(--surface-hover); }
-#diagram-list li.active { background: var(--active-bg); color: var(--active-text); }
+#diagram-list li.diagram-item:hover { background: var(--surface-hover); }
+#diagram-list li.diagram-item.active { background: var(--active-bg); color: var(--active-text); }
+#diagram-list .sidebar-section {
+  cursor: default;
+  padding: 10px 12px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+#diagram-list .sidebar-empty {
+  cursor: default;
+  padding: 2px 12px 6px 22px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+#diagram-list .caret {
+  flex: 0 0 12px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+#diagram-list .caret.leaf { visibility: hidden; }
+#diagram-list .caret:not(.leaf):hover { color: var(--text); }
 #diagram-list .name {
   flex: 1 1 auto;
   white-space: nowrap;

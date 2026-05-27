@@ -50,13 +50,14 @@ func (h *apiHandlers) list(w http.ResponseWriter, r *http.Request) {
 func (h *apiHandlers) create(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var body struct {
-		Name string `json:"name"`
+		Name      string `json:"name"`
+		Component bool   `json:"component"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	d, err := h.svc.Create(r.Context(), body.Name)
+	d, err := h.svc.Create(r.Context(), body.Name, body.Component)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -110,26 +111,43 @@ func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// patch updates diagram metadata: rename (name) and/or library role
+// (component). Both fields are optional pointers so callers can send either.
 func (h *apiHandlers) rename(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var body struct {
-		Name string `json:"name"`
+		Name      *string `json:"name"`
+		Component *bool   `json:"component"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	d, err := h.svc.Rename(r.Context(), id, body.Name)
-	if err != nil {
-		h.writeError(w, err)
-		return
+	var d *diagrams.Diagram
+	var err error
+	if body.Name != nil {
+		if d, err = h.svc.Rename(r.Context(), id, *body.Name); err != nil {
+			h.writeError(w, err)
+			return
+		}
+	}
+	if body.Component != nil {
+		if d, err = h.svc.SetComponent(r.Context(), id, *body.Component); err != nil {
+			h.writeError(w, err)
+			return
+		}
+	}
+	if d == nil { // nothing to change → return current meta
+		if d, err = h.svc.Get(r.Context(), id); err != nil {
+			h.writeError(w, err)
+			return
+		}
 	}
 	w.Header().Set("ETag", diagrams.ETag(d))
 	// Response body remains a lightweight meta so the sidebar can refresh
 	// without re-fetching the full diagram.
-	m := diagrams.NewDiagramMeta(d)
-	writeJSON(w, http.StatusOK, m)
+	writeJSON(w, http.StatusOK, diagrams.NewDiagramMeta(d))
 }
 
 func (h *apiHandlers) delete(w http.ResponseWriter, r *http.Request) {

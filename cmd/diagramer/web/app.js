@@ -469,25 +469,74 @@ async function refreshSidebar() {
   renderSidebar(list, diagram && diagram.id);
 }
 
+// Sidebar state: the last metas (id-indexed) and which tree paths are open.
+// Expansion is keyed by full path (e.g. "a/b/a"), never by id alone, so a
+// diagram that references itself can be expanded level by level without ever
+// looping — each open is a distinct user action on a distinct path.
+let sidebarById = new Map();
+let expandedPaths = new Set();
+let sidebarActiveId = null;
+
 function renderSidebar(list, activeId) {
+  sidebarById = new Map(list.map((m) => [m.id, m]));
+  sidebarActiveId = activeId;
   sidebarListEl.innerHTML = "";
-  // Most-recently updated first.
-  list.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-  for (const m of list) {
-    const li = document.createElement("li");
-    if (m.id === activeId) li.classList.add("active");
-    li.dataset.id = m.id;
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = m.name;
-    name.title = m.name;
-    li.appendChild(name);
-    const del = document.createElement("button");
-    del.className = "del";
-    del.title = "Delete";
-    del.textContent = "×";
-    li.appendChild(del);
-    sidebarListEl.appendChild(li);
+  const byRecent = (a, b) => (a.updatedAt < b.updatedAt ? 1 : -1);
+  const diagrams = list.filter((m) => !m.component).sort(byRecent);
+  const comps = list.filter((m) => m.component).sort(byRecent);
+  appendSidebarSection("Diagrams", diagrams);
+  appendSidebarSection("Subdiagrams", comps);
+}
+
+function appendSidebarSection(title, metas) {
+  const head = document.createElement("li");
+  head.className = "sidebar-section";
+  head.textContent = title;
+  sidebarListEl.appendChild(head);
+  if (metas.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "sidebar-empty";
+    empty.textContent = "—";
+    sidebarListEl.appendChild(empty);
+    return;
+  }
+  for (const m of metas) appendSidebarItem(m, m.id, 0);
+}
+
+function appendSidebarItem(meta, path, depth) {
+  const li = document.createElement("li");
+  li.className = "diagram-item";
+  if (meta.id === sidebarActiveId) li.classList.add("active");
+  li.dataset.id = meta.id;
+  li.dataset.path = path;
+  li.style.paddingLeft = 8 + depth * 14 + "px";
+
+  const hasKids = (meta.subdiagrams || []).length > 0;
+  const caret = document.createElement("span");
+  caret.className = "caret" + (hasKids ? "" : " leaf");
+  caret.textContent = hasKids ? (expandedPaths.has(path) ? "▾" : "▸") : "";
+  li.appendChild(caret);
+
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = meta.name;
+  name.title = meta.name;
+  li.appendChild(name);
+
+  const del = document.createElement("button");
+  del.className = "del";
+  del.title = "Delete";
+  del.textContent = "×";
+  li.appendChild(del);
+  sidebarListEl.appendChild(li);
+
+  // Children are rendered only when this exact path is expanded (lazy), which
+  // is what makes recursive references safe.
+  if (hasKids && expandedPaths.has(path)) {
+    for (const cid of meta.subdiagrams) {
+      const cm = sidebarById.get(cid);
+      if (cm) appendSidebarItem(cm, path + "/" + cid, depth + 1);
+    }
   }
 }
 
@@ -704,7 +753,7 @@ async function createSubdiagram(nodeId) {
   if (!node) return;
   try {
     const name = (node.data.label || "Container") + " — inside";
-    const created = await api("POST", "/api/diagrams", { name });
+    const created = await api("POST", "/api/diagrams", { name, component: true });
     pushHistory();
     node.data.subdiagramId = created.id;
     save();
@@ -1299,7 +1348,7 @@ async function addContainer(modelX, modelY) {
   }
   const name = (label.trim() || "Container") + " — inside";
   try {
-    const created = await api("POST", "/api/diagrams", { name });
+    const created = await api("POST", "/api/diagrams", { name, component: true });
     pushHistory();
     diagram.nodes.push({
       id: uid(),
@@ -1965,6 +2014,17 @@ sidebarListEl.addEventListener("click", async (evt) => {
   const li = evt.target.closest("li");
   if (!li) return;
   const id = li.dataset.id;
+  if (!id) return; // section header / empty row
+
+  // Caret toggles this path's children (lazy, recursion-safe).
+  if (evt.target.classList.contains("caret") && !evt.target.classList.contains("leaf")) {
+    evt.stopPropagation();
+    const path = li.dataset.path;
+    if (expandedPaths.has(path)) expandedPaths.delete(path);
+    else expandedPaths.add(path);
+    renderSidebar([...sidebarById.values()], sidebarActiveId);
+    return;
+  }
 
   if (evt.target.classList.contains("del")) {
     evt.stopPropagation();
@@ -2005,6 +2065,53 @@ sidebarListEl.addEventListener("dblclick", (evt) => {
   const li = nameEl.parentElement;
   startRename(li, nameEl);
 });
+
+// Right-click a sidebar item to convert between a top-level diagram and a
+// reusable subdiagram (library component).
+sidebarListEl.addEventListener("contextmenu", (evt) => {
+  const li = evt.target.closest("li.diagram-item");
+  if (!li) return;
+  evt.preventDefault();
+  const id = li.dataset.id;
+  const meta = sidebarById.get(id);
+  if (!meta) return;
+  const items = meta.component
+    ? [{ label: "Convert to diagram", action: () => setDiagramComponent(id, false) }]
+    : [{ label: "Convert to subdiagram", action: () => setDiagramComponent(id, true) }];
+  items.push({ separator: true });
+  items.push({ label: "Delete", action: () => deleteDiagramById(id, meta.name) });
+  showContextMenu(evt.clientX, evt.clientY, items);
+});
+
+async function setDiagramComponent(id, component) {
+  try {
+    await api("PATCH", `/api/diagrams/${id}`, { component });
+    await refreshSidebar();
+    setStatus(component ? "moved to subdiagrams" : "moved to diagrams");
+  } catch (e) {
+    setStatus("convert failed");
+    console.error(e);
+  }
+}
+
+async function deleteDiagramById(id, name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  try {
+    await api("DELETE", `/api/diagrams/${id}`);
+  } catch (e) {
+    setStatus("delete failed");
+    console.error(e);
+    return;
+  }
+  if (diagram && diagram.id === id) {
+    const list = (await api("GET", "/api/diagrams")) || [];
+    let next = list[0] || (await api("POST", "/api/diagrams", { name: "Untitled" }));
+    renderSidebar(list.length ? list : [next], next.id);
+    await loadDiagram(next.id, { push: true });
+  } else {
+    await refreshSidebar();
+  }
+}
 
 function startRename(li, nameEl) {
   const id = li.dataset.id;
