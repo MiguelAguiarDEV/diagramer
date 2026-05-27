@@ -260,6 +260,40 @@ test("theme toggle switches palette, persists, and renders both modes", async ({
   ).toBe("light");
 });
 
+test("Add menu creates a container node with a subdiagram in one step", async ({
+  page,
+  request,
+}) => {
+  const id = await createDiagram(request, "Compose", [], [], { x: 220, y: 160, zoom: 1 });
+  await page.goto(`/d/${id}`);
+  await page.waitForSelector("#add-box");
+
+  await page.click("#add-box");
+  await page.waitForSelector("#ctx-menu", { state: "visible" });
+  await page.screenshot({ path: `${SHOTS}/14-add-menu.png` });
+
+  // The Add menu carries a one-step "Container (subdiagram)" entry; it prompts
+  // for a label via a native dialog.
+  page.once("dialog", (d) => d.accept("Auth Service"));
+  await page.locator("#ctx-menu button", { hasText: "Container (subdiagram)" }).click();
+
+  await page.waitForSelector("#nodes .node.container", { timeout: 5000 });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${SHOTS}/15-container-added.png` });
+
+  const badges = await page.$$eval(
+    "#nodes .node.container .subdiagram-badge",
+    (els) => els.length,
+  );
+  expect(badges).toBe(1);
+  const label = await page.$eval("#nodes .node.container > text", (el) => el.textContent);
+  expect(label).toBe("Auth Service");
+
+  // A backing subdiagram was created (so the diagram list grew).
+  const list = await (await request.get("/api/diagrams")).json();
+  expect(list.length).toBeGreaterThanOrEqual(2);
+});
+
 test("container node opens its subdiagram and breadcrumb navigates back", async ({
   page,
   request,
