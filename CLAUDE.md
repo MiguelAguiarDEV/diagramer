@@ -112,9 +112,11 @@ tree path as the drill path. Orthogonally, a chronological history powers
 Back/Forward (toolbar `‹ ›` or Alt+←/→) so you can return to wherever you were
 regardless of how you got there (sidebar jump, drill-in, crumb); each history
 entry restores its breadcrumb. Fit (toolbar button or `F`) zooms/pans so the
-whole diagram fits — the "see everything" view. Via MCP: `create_subdiagram`
-links a fresh diagram to a node; populate it with `add_node`/`add_edge` using
-the returned id.
+whole diagram fits — the "see everything" view. Drag any sidebar item onto the
+canvas to drop it in as a container node referencing that diagram
+(`addContainerRef`); recursion is allowed, so it may reference the current
+diagram too. Via MCP: `create_subdiagram` links a fresh diagram to a node;
+populate it with `add_node`/`add_edge` using the returned id.
 
 A subdiagram has an **interface like a function signature**: tag inner nodes
 with `data.port` = `"in"` / `"out"` / `"dep"` and the container surfaces them as

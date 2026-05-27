@@ -187,6 +187,7 @@ body {
   transition: background-color 0.1s ease, color 0.1s ease;
 }
 #diagram-list li.diagram-item:hover { background: var(--surface-hover); color: var(--text); }
+#diagram-list li.diagram-item.dragging { opacity: 0.45; }
 #diagram-list li.diagram-item.active {
   background: var(--active-bg);
   color: var(--active-text);
@@ -392,6 +393,11 @@ main {
     radial-gradient(circle, var(--dot) 1px, transparent 1.4px) 0 0 / 22px 22px,
     var(--bg);
   cursor: default;
+}
+#canvas.drop-target {
+  cursor: copy;
+  outline: 2px dashed var(--accent);
+  outline-offset: -10px;
 }
 #canvas.connecting { cursor: crosshair; }
 #canvas.space-pan { cursor: grab; }
