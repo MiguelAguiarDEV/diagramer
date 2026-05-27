@@ -641,6 +641,44 @@ test("container node opens its subdiagram and breadcrumb navigates back", async 
   expect(ancestorCrumbs).toBe(0);
 });
 
+test("sidebar groups diagrams vs subdiagrams, expands the contains tree, and converts", async ({
+  page,
+  request,
+}) => {
+  // A library component, and a top-level diagram that references it.
+  const sub = await (await request.post("/api/diagrams", { data: { name: "Auth", component: true } })).json();
+  const main = await createDiagram(
+    request,
+    "Main",
+    [{ id: "box", kind: "rect", position: { x: 140, y: 130 }, data: { label: "Login", subdiagramId: sub.id } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  await openDiagram(page, main);
+
+  // Two sections, in order.
+  expect(
+    await page.$$eval("#diagram-list .sidebar-section", (els) => els.map((e) => e.textContent)),
+  ).toEqual(["Diagrams", "Subdiagrams"]);
+
+  // Expanding "Main" reveals "Auth" nested under it (so Auth now appears twice:
+  // in the library and nested under Main).
+  await page.locator(`#diagram-list li.diagram-item[data-id="${main}"] .caret`).click();
+  const authCount = await page.$$eval("#diagram-list li.diagram-item", (els) =>
+    els.filter((e) => e.querySelector(".name")!.textContent === "Auth").length,
+  );
+  expect(authCount).toBe(2);
+  await page.screenshot({ path: `${SHOTS}/23-sidebar-tree.png` });
+
+  // Convert Main into a subdiagram (right-click → Convert); it becomes a
+  // component. Checked via the API so it's robust to other diagrams existing.
+  await page.locator(`#diagram-list li.diagram-item[data-id="${main}"]`).first().click({ button: "right" });
+  await page.locator("#ctx-menu button", { hasText: "Convert to subdiagram" }).click();
+  await page.waitForTimeout(300);
+  const metas = await (await request.get("/api/diagrams")).json();
+  expect(metas.find((m: any) => m.id === main).component).toBe(true);
+});
+
 test("minimap mirrors the nodes and recenters the view on click", async ({
   page,
   request,

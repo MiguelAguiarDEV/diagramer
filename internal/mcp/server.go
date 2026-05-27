@@ -214,7 +214,7 @@ func (s *Server) getDiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, in i
 }
 
 func (s *Server) createDiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, in createInput) (*mcpsdk.CallToolResult, diagramOutput, error) {
-	d, err := s.svc.Create(ctx, in.Name)
+	d, err := s.svc.Create(ctx, in.Name, false)
 	if err != nil {
 		return nil, diagramOutput{}, err
 	}
@@ -347,7 +347,7 @@ func (s *Server) createSubdiagram(ctx context.Context, _ *mcpsdk.CallToolRequest
 		}
 		name = label + " — inside"
 	}
-	sub, err := s.svc.Create(ctx, name)
+	sub, err := s.svc.Create(ctx, name, true) // a subdiagram is a library component
 	if err != nil {
 		return nil, idOutput{}, err
 	}

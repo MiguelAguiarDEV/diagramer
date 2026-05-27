@@ -53,7 +53,7 @@ func (r *memRepo) Delete(ctx context.Context, id string) error {
 
 func TestCreate(t *testing.T) {
 	s := NewService(newMemRepo())
-	d, err := s.Create(context.Background(), "  hello  ")
+	d, err := s.Create(context.Background(), "  hello  ", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestCreate(t *testing.T) {
 
 func TestCreateRejectsEmpty(t *testing.T) {
 	s := NewService(newMemRepo())
-	if _, err := s.Create(context.Background(), "   "); !errors.Is(err, ErrInvalidName) {
+	if _, err := s.Create(context.Background(), "   ", false); !errors.Is(err, ErrInvalidName) {
 		t.Errorf("expected ErrInvalidName, got %v", err)
 	}
 }
@@ -85,7 +85,7 @@ func TestUpdatePreservesCreatedAtAndRefreshesUpdatedAt(t *testing.T) {
 	r := newMemRepo()
 	s := NewService(r)
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	origCreated := d.CreatedAt
 	origUpdated := d.UpdatedAt
 
@@ -109,7 +109,7 @@ func TestUpdatePreservesCreatedAtAndRefreshesUpdatedAt(t *testing.T) {
 func TestUpdateNilSlicesNormalized(t *testing.T) {
 	r := newMemRepo()
 	s := NewService(r)
-	d, _ := s.Create(context.Background(), "x")
+	d, _ := s.Create(context.Background(), "x", false)
 	d.Nodes = nil
 	d.Edges = nil
 	got, err := s.Update(context.Background(), d, "")
@@ -124,7 +124,7 @@ func TestUpdateNilSlicesNormalized(t *testing.T) {
 func TestRename(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "old")
+	d, _ := s.Create(ctx, "old", false)
 	renamed, err := s.Rename(ctx, d.ID, "  new name  ")
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestRename(t *testing.T) {
 func TestUpdateETagMismatch(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	if _, err := s.Update(ctx, d, `"999"`); !errors.Is(err, ErrConflict) {
 		t.Errorf("expected ErrConflict, got %v", err)
 	}
@@ -146,7 +146,7 @@ func TestUpdateETagMismatch(t *testing.T) {
 func TestUpdateETagMatch(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	if _, err := s.Update(ctx, d, ETag(d)); err != nil {
 		t.Fatalf("expected ok, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestUpdateETagMatch(t *testing.T) {
 func TestRenameRejectsEmpty(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "old")
+	d, _ := s.Create(ctx, "old", false)
 	if _, err := s.Rename(ctx, d.ID, ""); !errors.Is(err, ErrInvalidName) {
 		t.Errorf("expected ErrInvalidName, got %v", err)
 	}
@@ -164,7 +164,7 @@ func TestRenameRejectsEmpty(t *testing.T) {
 func TestUpdateRejectsBadEdgeRef(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	d.Nodes = []Node{{ID: "n1"}}
 	d.Edges = []Edge{{ID: "e1", Source: "n1", Target: "ghost"}}
 	if _, err := s.Update(ctx, d, ""); !errors.Is(err, ErrEdgeRef) {
@@ -175,7 +175,7 @@ func TestUpdateRejectsBadEdgeRef(t *testing.T) {
 func TestUpdateRejectsLongLabel(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	long := make([]byte, MaxLabelLen+1)
 	for i := range long {
 		long[i] = 'a'
@@ -189,7 +189,7 @@ func TestUpdateRejectsLongLabel(t *testing.T) {
 func TestUpdateRejectsTooManyNodes(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	d.Nodes = make([]Node, MaxNodes+1)
 	for i := range d.Nodes {
 		d.Nodes[i] = Node{ID: "n"}
@@ -202,11 +202,52 @@ func TestUpdateRejectsTooManyNodes(t *testing.T) {
 func TestDelete(t *testing.T) {
 	s := NewService(newMemRepo())
 	ctx := context.Background()
-	d, _ := s.Create(ctx, "x")
+	d, _ := s.Create(ctx, "x", false)
 	if err := s.Delete(ctx, d.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Get(ctx, d.ID); err == nil {
 		t.Error("expected get to fail after delete")
+	}
+}
+
+func TestComponentAndSubdiagramMeta(t *testing.T) {
+	s := NewService(newMemRepo())
+	ctx := context.Background()
+
+	comp, err := s.Create(ctx, "lib", true)
+	if err != nil || !comp.Component {
+		t.Fatalf("Create(component=true): %v, component=%v", err, comp.Component)
+	}
+	plain, _ := s.Create(ctx, "main", false)
+	if plain.Component {
+		t.Fatal("Create(component=false) set component")
+	}
+
+	// Reference the component twice; meta dedups the subdiagram id.
+	plain.Nodes = []Node{
+		{ID: "a", Data: NodeData{SubdiagramID: comp.ID}},
+		{ID: "b", Data: NodeData{SubdiagramID: comp.ID}},
+		{ID: "c"},
+	}
+	if _, err := s.Update(ctx, plain, ""); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, _ := s.Get(ctx, plain.ID)
+	if got.Component {
+		t.Error("content Update must not change component")
+	}
+	m := NewDiagramMeta(got)
+	if len(m.Subdiagrams) != 1 || m.Subdiagrams[0] != comp.ID {
+		t.Errorf("meta.Subdiagrams = %v, want [%s]", m.Subdiagrams, comp.ID)
+	}
+
+	// SetComponent toggles the library role.
+	if _, err := s.SetComponent(ctx, plain.ID, true); err != nil {
+		t.Fatalf("SetComponent: %v", err)
+	}
+	got, _ = s.Get(ctx, plain.ID)
+	if !got.Component {
+		t.Error("SetComponent(true) did not stick")
 	}
 }

@@ -52,13 +52,17 @@ type Repository interface {
 type Service interface {
 	List(ctx context.Context) ([]DiagramMeta, error)
 	Get(ctx context.Context, id string) (*Diagram, error)
-	Create(ctx context.Context, name string) (*Diagram, error)
+	// Create makes a new empty diagram. component marks it as a reusable
+	// subdiagram (library item) rather than a top-level diagram.
+	Create(ctx context.Context, name string, component bool) (*Diagram, error)
 	// Update writes d. When ifMatch is non-empty it must equal the current
 	// server-side ETag or ErrConflict is returned; pass "" to bypass.
 	Update(ctx context.Context, d *Diagram, ifMatch string) (*Diagram, error)
 	// Rename returns the post-rename Diagram so callers can also derive the
 	// fresh ETag without an extra round-trip.
 	Rename(ctx context.Context, id, newName string) (*Diagram, error)
+	// SetComponent flips whether the diagram is a library subdiagram.
+	SetComponent(ctx context.Context, id string, component bool) (*Diagram, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -79,7 +83,7 @@ func (s *service) Get(ctx context.Context, id string) (*Diagram, error) {
 	return s.repo.Get(ctx, id)
 }
 
-func (s *service) Create(ctx context.Context, name string) (*Diagram, error) {
+func (s *service) Create(ctx context.Context, name string, component bool) (*Diagram, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, ErrInvalidName
@@ -93,6 +97,7 @@ func (s *service) Create(ctx context.Context, name string) (*Diagram, error) {
 		Name:      name,
 		Nodes:     []Node{},
 		Edges:     []Edge{},
+		Component: component,
 		Viewport:  Viewport{Zoom: 1},
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -114,8 +119,10 @@ func (s *service) Update(ctx context.Context, d *Diagram, ifMatch string) (*Diag
 	if ifMatch != "" && ifMatch != ETag(existing) {
 		return nil, ErrConflict
 	}
-	// Preserve immutable fields, accept new content.
+	// Preserve immutable / non-canvas fields, accept new content. Component is
+	// metadata, not canvas content, so a content PUT never changes it.
 	d.CreatedAt = existing.CreatedAt
+	d.Component = existing.Component
 	if strings.TrimSpace(d.Name) == "" {
 		d.Name = existing.Name
 	}
@@ -148,6 +155,22 @@ func (s *service) Rename(ctx context.Context, id, newName string) (*Diagram, err
 		return nil, err
 	}
 	d.Name = newName
+	d.UpdatedAt = s.now()
+	if err := s.repo.Save(ctx, d); err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	return d, nil
+}
+
+func (s *service) SetComponent(ctx context.Context, id string, component bool) (*Diagram, error) {
+	d, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.Component == component {
+		return d, nil
+	}
+	d.Component = component
 	d.UpdatedAt = s.now()
 	if err := s.repo.Save(ctx, d); err != nil {
 		return nil, fmt.Errorf("save: %w", err)

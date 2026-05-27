@@ -61,14 +61,23 @@ CDN is blocked, point `PW_CHROMIUM` at a pre-installed chromium binary.
 ## Data model (`internal/diagrams/model.go`)
 
 ```
-Diagram { id, name, nodes[], edges[], viewport, createdAt, updatedAt }
-Node    { id, kind?, position{x,y}, data{ label, fill?, stroke?, subdiagramId? } }
-Edge    { id, source, target, label?, curvature?{ox,oy} }
+Diagram { id, name, nodes[], edges[], component?, viewport, createdAt, updatedAt }
+Node    { id, kind?, position{x,y}, data{ label, fill?, stroke?, subdiagramId?, port? } }
+Edge    { id, source, target, sourcePort?, targetPort?, label?, curvature?{ox,oy} }
 Viewport{ x, y, zoom }
+DiagramMeta { id, name, updatedAt, nodeCount, edgeCount, component?, subdiagrams[] }
 ```
 
 - `kind`: rect (default), circle, ellipse, rhombus, tri-up, tri-down, and the
   icon stencils database/backend/frontend/queue/cache/user/cloud.
+- `component`: a diagram is just a diagram; this flag only sorts it into the
+  sidebar's **Subdiagrams** (library) section vs **Diagrams**. New subdiagrams
+  are created `component:true`; right-click a sidebar item to Convert to/from.
+  `DiagramMeta.subdiagrams` lists referenced ids so the sidebar builds an
+  expandable "contains" tree (lazy per path → recursive self-reference is
+  allowed and won't loop).
+- `sourcePort`/`targetPort`: bind an edge endpoint to a container interface
+  port (the inner node id).
 - `fill`/`stroke`: optional CSS hex; empty falls back to the theme defaults.
 - `subdiagramId`: makes the node a **container** referencing another diagram
   as its nested interior (see below).
