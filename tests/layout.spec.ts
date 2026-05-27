@@ -725,6 +725,43 @@ test("fit view frames an off-center diagram inside the canvas", async ({ page, r
   expect(nb!.y + nb!.height).toBeLessThanOrEqual(cb!.y + cb!.height + 1);
 });
 
+test("system map shows the containment graph and jumps on click", async ({ page, request }) => {
+  // Build: System ⊃ {PaymentsSvc ⊃ Ledger, AuthSvc}.
+  const ledger = await (await request.post("/api/diagrams", { data: { name: "Ledger", component: true } })).json();
+  const payments = await (await request.post("/api/diagrams", { data: { name: "PaymentsSvc", component: true } })).json();
+  await request.put(`/api/diagrams/${payments.id}`, {
+    data: { name: "PaymentsSvc", nodes: [{ id: "c", position: { x: 80, y: 80 }, data: { label: "Ledger", subdiagramId: ledger.id } }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } },
+  });
+  const auth = await (await request.post("/api/diagrams", { data: { name: "AuthSvc", component: true } })).json();
+  const system = await createDiagram(
+    request,
+    "System",
+    [
+      { id: "p", position: { x: 120, y: 120 }, data: { label: "Payments", subdiagramId: payments.id } },
+      { id: "a", position: { x: 400, y: 120 }, data: { label: "Auth", subdiagramId: auth.id } },
+    ],
+    [],
+  );
+  await openDiagram(page, system);
+
+  // Open the map (toolbar button).
+  await page.locator("#map-view").click();
+  await expect(page.locator("#hierarchy-overlay")).toBeVisible();
+
+  // The four diagrams of this system each appear as a node (the map shows the
+  // whole library, so other tests' diagrams may coexist — assert by id).
+  for (const id of [system, payments.id, auth.id, ledger.id]) {
+    await expect(page.locator(`#hierarchy-content .hier-node[data-id="${id}"]`)).toHaveCount(1);
+  }
+  await expect(page.locator(`#hierarchy-content .hier-node[data-id="${system}"]`)).toHaveClass(/current/);
+  await page.screenshot({ path: `${SHOTS}/24-system-map.png` });
+
+  // Clicking PaymentsSvc jumps there and closes the map.
+  await page.locator(`#hierarchy-content .hier-node[data-id="${payments.id}"]`).click();
+  await expect(page.locator("#hierarchy-overlay")).toBeHidden();
+  await expect(page.locator("#diagram-name")).toContainText("PaymentsSvc");
+});
+
 test("minimap mirrors the nodes and recenters the view on click", async ({
   page,
   request,
