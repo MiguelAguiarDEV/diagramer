@@ -460,12 +460,16 @@ main {
 .port.port-out circle { fill: #3b82f6; stroke: var(--node-fill); }
 
 /* "+" add bolita: a dashed hollow port slot at the next position; click to add
-   a port of that role. Dimmed by default, full on container hover/select. */
-.add-port { opacity: 0.55; cursor: pointer; transition: opacity 0.1s; }
+   a port of that role. The disc fill is the opaque theme background so nothing
+   (grid dots, edges) shows through; only the ring + glyph are dimmed until the
+   container is hovered/selected. */
+.add-port { cursor: pointer; }
 .add-port circle {
   fill: var(--bg);
   stroke-width: 1.5;
   stroke-dasharray: 2 2;
+  stroke-opacity: 0.55;
+  transition: stroke-opacity 0.1s;
 }
 .add-port.add-in circle  { stroke: #22c55e; }
 .add-port.add-dep circle { stroke: #f59e0b; }
@@ -473,11 +477,15 @@ main {
   font: bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   pointer-events: none;
   user-select: none;
+  opacity: 0.55;
+  transition: opacity 0.1s;
 }
 .add-port.add-in text  { fill: #22c55e; }
 .add-port.add-dep text { fill: #f59e0b; }
-.node.container:hover .add-port,
-.node.container.selected .add-port { opacity: 1; }
+.node.container:hover .add-port circle,
+.node.container.selected .add-port circle { stroke-opacity: 1; }
+.node.container:hover .add-port text,
+.node.container.selected .add-port text { opacity: 1; }
 
 .port-badge rect { stroke: none; }
 .port-badge text {
