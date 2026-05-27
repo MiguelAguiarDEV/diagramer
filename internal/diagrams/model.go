@@ -40,7 +40,7 @@ type NodeData struct {
 	// subdiagram, each interface node surfaces as a port on the container:
 	//   "in"  → entry,      drawn on the container's left
 	//   "out" → return,     drawn on the right
-	//   "dep" → dependency, drawn on the bottom (a DB/API the inside relies on)
+	//   "dep" → dependency, drawn on the top (a DB/API the inside relies on)
 	Port string `json:"port,omitempty"`
 }
 

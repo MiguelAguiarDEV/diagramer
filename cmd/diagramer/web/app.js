@@ -198,7 +198,8 @@ function drawShape(g, shape, w, h) {
 
 // Draws interface ports on a container node's edges, derived from the
 // referenced subdiagram's port-tagged nodes: "in" on the left, "out" on the
-// right, "dep" along the bottom. Each port is a small disc plus its label.
+// right, "dep" along the top. in/dep render hollow ("plug something here"),
+// out filled ("produced here"). Each port carries its label.
 function drawContainerPorts(g, w, h, ports) {
   if (!ports || ports.length === 0) return;
   const ins = ports.filter((p) => p.role === "in");
@@ -210,14 +211,14 @@ function drawContainerPorts(g, w, h, ports) {
       const t = (i + 1) / (list.length + 1);
       let cx, cy, lx, ly, anchor;
       if (side === "left") {
-        cx = 0; cy = h * t; lx = -8; ly = cy + 3; anchor = "end";
+        cx = 0; cy = h * t; lx = -9; ly = cy + 3; anchor = "end";
       } else if (side === "right") {
-        cx = w; cy = h * t; lx = w + 8; ly = cy + 3; anchor = "start";
+        cx = w; cy = h * t; lx = w + 9; ly = cy + 3; anchor = "start";
       } else {
-        cx = w * t; cy = h; lx = cx; ly = h + 14; anchor = "middle";
+        cx = w * t; cy = 0; lx = cx; ly = -9; anchor = "middle";
       }
       const pg = svg("g", { class: "port port-" + p.role });
-      pg.appendChild(svg("circle", { cx, cy, r: 4 }));
+      pg.appendChild(svg("circle", { cx, cy, r: 5 }));
       if (p.label) {
         const tx = svg("text", { x: lx, y: ly, "text-anchor": anchor });
         tx.textContent = p.label;
@@ -231,7 +232,21 @@ function drawContainerPorts(g, w, h, ports) {
   };
   place(ins, "left");
   place(outs, "right");
-  place(deps, "bottom");
+  place(deps, "top");
+}
+
+// A floating "+" affordance just outside a container edge to add a port of the
+// given role (creates the matching interface node inside the subdiagram).
+function drawAddPortHandle(g, cx, cy, role, nodeId, hint) {
+  const ph = svg("g", { class: "add-port", "data-id": nodeId, "data-role": role });
+  ph.appendChild(svg("circle", { cx, cy, r: 8 }));
+  const t = svg("text", { x: cx, y: cy + 4, "text-anchor": "middle" });
+  t.textContent = "+";
+  ph.appendChild(t);
+  const title = svg("title", {});
+  title.textContent = hint;
+  ph.appendChild(title);
+  g.appendChild(ph);
 }
 
 const ZOOM_MIN = 0.25;
@@ -492,6 +507,41 @@ async function loadSubdiagramPorts() {
     }),
   );
   render();
+}
+
+// Adds a new interface node of the given role to a container's subdiagram, so
+// a fresh port appears on the container. Single source of truth: the inside is
+// where the interface lives, the "+" just scaffolds it. Auto-named; rename by
+// drilling in.
+async function addPortToContainer(node, role) {
+  const subId = node && node.data.subdiagramId;
+  if (!subId) return;
+  try {
+    const sd = await api("GET", `/api/diagrams/${subId}`);
+    const count = sd.nodes.filter((n) => n.data.port === role).length;
+    const base = role === "in" ? "input" : role === "out" ? "output" : "dep";
+    // Lay the interface node out on the matching side of the inside.
+    let pos;
+    if (role === "in") pos = { x: -240, y: count * 80 };
+    else if (role === "out") pos = { x: 320, y: count * 80 };
+    else pos = { x: count * 200, y: -160 };
+    sd.nodes.push({
+      id: uid(),
+      position: pos,
+      data: { label: `${base} ${count + 1}`, port: role },
+    });
+    await api("PUT", `/api/diagrams/${subId}`, {
+      name: sd.name,
+      nodes: sd.nodes,
+      edges: sd.edges,
+      viewport: sd.viewport,
+    });
+    await loadSubdiagramPorts();
+    setStatus(`${base} port added`);
+  } catch (e) {
+    setStatus("add port failed");
+    console.error(e);
+  }
 }
 
 // Renders the title as a clickable breadcrumb of ancestors + current diagram.
@@ -818,6 +868,11 @@ function render() {
       g.appendChild(badge);
       // Interface ports derived from the referenced subdiagram.
       drawContainerPorts(g, w, h, subPorts.get(n.data.subdiagramId));
+      // "+" affordances to add an input (bottom-left, below the input column)
+      // or dependency (top-center); the output (return) appears on its own from
+      // inside, so it gets no "+".
+      drawAddPortHandle(g, -12, h + 12, "in", n.id, "Add input");
+      drawAddPortHandle(g, w / 2, -24, "dep", n.id, "Add dependency");
     }
 
     // Interface-role badge: marks this node as part of its diagram's interface
@@ -1295,6 +1350,15 @@ canvas.addEventListener("mousedown", (evt) => {
   }
   // While editing, let the input handle its own clicks; ignore on canvas.
   if (evt.target.tagName === "INPUT") return;
+
+  // Clicking a container's "+" affordance adds an interface port.
+  const addPortEl = evt.target.closest(".add-port");
+  if (addPortEl) {
+    evt.stopPropagation();
+    const node = diagram.nodes.find((n) => n.id === addPortEl.dataset.id);
+    if (node) addPortToContainer(node, addPortEl.dataset.role);
+    return;
+  }
 
   // n8n-style: clicking the "+" handle starts a pending edge from that node.
   const handleEl = evt.target.closest(".conn-handle");
@@ -1995,7 +2059,7 @@ function interfaceMenuItems(id) {
   return [
     item("in", "Input (left)"),
     item("out", "Output (right)"),
-    item("dep", "Dependency (bottom)"),
+    item("dep", "Dependency (top)"),
     { separator: true },
     item("", "None"),
   ];

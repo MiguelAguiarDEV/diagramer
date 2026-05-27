@@ -262,12 +262,25 @@ main {
 .node.container { cursor: pointer; }
 
 /* Interface ports on container edges + the role badge inside the subdiagram.
-   in = entry (green), out = return (blue), dep = dependency (amber). */
-.port circle { stroke: var(--node-fill); stroke-width: 1.5; pointer-events: all; }
+   in = entry (green), out = return (blue), dep = dependency (amber).
+   in/dep render hollow ("plug here"); out is filled ("produced here"). */
+.port circle { stroke-width: 2; pointer-events: all; }
 .port text { font: 10px system-ui, sans-serif; fill: var(--text-muted); pointer-events: none; }
-.port.port-in circle  { fill: #22c55e; }
-.port.port-out circle { fill: #3b82f6; }
-.port.port-dep circle { fill: #f59e0b; }
+.port.port-in circle  { fill: var(--bg); stroke: #22c55e; }
+.port.port-dep circle { fill: var(--bg); stroke: #f59e0b; }
+.port.port-out circle { fill: #3b82f6; stroke: var(--node-fill); }
+
+/* Floating "+" to add an input/dependency port; shown on container hover/select. */
+.add-port { opacity: 0; cursor: pointer; transition: opacity 0.1s; }
+.add-port circle { fill: var(--surface-btn); stroke: var(--accent); stroke-width: 1.5; }
+.add-port text {
+  fill: var(--accent);
+  font: bold 13px system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+.node.container:hover .add-port,
+.node.container.selected .add-port { opacity: 1; }
 
 .port-badge rect { stroke: none; }
 .port-badge text {

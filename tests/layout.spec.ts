@@ -363,6 +363,37 @@ test("container surfaces interface ports derived from its subdiagram", async ({
   expect(badges).toBe(3);
 });
 
+test("container '+' adds an input port and scaffolds the inside", async ({
+  page,
+  request,
+}) => {
+  const subId = await createDiagram(request, "Empty inside", [], [], { x: 200, y: 150, zoom: 1 });
+  const parentId = await createDiagram(
+    request,
+    "Host",
+    [{ id: "box", kind: "rect", position: { x: 160, y: 150 }, data: { label: "Service", subdiagramId: subId } }],
+    [],
+    { x: 200, y: 150, zoom: 1 },
+  );
+  await openDiagram(page, parentId);
+  await page.waitForSelector('#nodes .node[data-id="box"]');
+
+  // Select the container so its "+" affordances are interactive, then add input.
+  await page.locator('#nodes .node[data-id="box"]').click();
+  await page.locator('.node.container .add-port[data-role="in"]').click();
+
+  await page.waitForSelector(".node.container .port.port-in", { timeout: 5000 });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${SHOTS}/18-add-port.png` });
+
+  const ins = await page.$$eval(".node.container .port.port-in", (els) => els.length);
+  expect(ins).toBe(1);
+
+  // The "+" scaffolded a matching interface node inside the subdiagram.
+  const sd = await (await request.get(`/api/diagrams/${subId}`)).json();
+  expect(sd.nodes.filter((n: any) => n.data.port === "in").length).toBe(1);
+});
+
 test("container node opens its subdiagram and breadcrumb navigates back", async ({
   page,
   request,
