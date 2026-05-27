@@ -35,7 +35,7 @@ cmd/diagramer/
   web/           # the entire frontend
     index.html   # markup + anti-FOUC theme script
     app.js       # ALL behavior (render, interaction, undo, export, theme, …)
-    style.css    # design tokens (CSS custom properties); :root dark, :root[data-theme=light] clean neutral
+    style.css    # design tokens (CSS custom properties); :root dark (slate), :root[data-theme=light] warm vanilla
 internal/
   server/        # HTTP layer (mux, handlers, ETag/If-Match)
   diagrams/      # domain: model.go (types) + service.go (Service interface)

@@ -101,7 +101,7 @@ function svgChild(parent, tag, attrs) {
 }
 
 function drawDatabase(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
   svgChild(g, "ellipse", { cx: 10, cy: 4, rx: 8, ry: 2.5, ...a });
   svgChild(g, "path",    { d: "M2,4 V16 M18,4 V16", ...a });
   svgChild(g, "ellipse", { cx: 10, cy: 16, rx: 8, ry: 2.5, ...a });
@@ -109,14 +109,14 @@ function drawDatabase(g) {
 }
 
 function drawBackend(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
   svgChild(g, "rect", { x: 2, y: 3, width: 16, height: 14, rx: 2, ...a });
   svgChild(g, "path", { d: "M5,7 H15 M5,10 H15 M5,13 H15", ...a });
   svgChild(g, "circle", { cx: 16, cy: 6, r: 0.8, fill: "currentColor", stroke: "none" });
 }
 
 function drawFrontend(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
   svgChild(g, "rect", { x: 1, y: 3, width: 18, height: 12, rx: 2, ...a });
   svgChild(g, "path", { d: "M1,6 H19", ...a });
   svgChild(g, "circle", { cx: 3.5, cy: 4.5, r: 0.6, fill: "currentColor", stroke: "none" });
@@ -126,29 +126,30 @@ function drawFrontend(g) {
 }
 
 function drawQueue(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
   svgChild(g, "rect", { x: 2, y: 4,  width: 16, height: 3.5, rx: 1, ...a });
   svgChild(g, "rect", { x: 2, y: 8.5, width: 16, height: 3.5, rx: 1, ...a });
   svgChild(g, "rect", { x: 2, y: 13, width: 16, height: 3.5, rx: 1, ...a });
 }
 
 function drawCache(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
   svgChild(g, "rect", { x: 4, y: 4, width: 12, height: 12, rx: 1, ...a });
   svgChild(g, "path", { d: "M0,7 H4 M0,10 H4 M0,13 H4 M16,7 H20 M16,10 H20 M16,13 H20", ...a });
   svgChild(g, "path", { d: "M7,4 V0 M10,4 V0 M13,4 V0 M7,20 V16 M10,20 V16 M13,20 V16", ...a });
 }
 
 function drawUser(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
-  svgChild(g, "circle", { cx: 10, cy: 7, r: 3.2, ...a });
-  svgChild(g, "path", { d: "M3,18 Q10,11 17,18", ...a });
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
+  svgChild(g, "circle", { cx: 10, cy: 6.5, r: 3.1, ...a });
+  // Shoulders as a smooth shallow arc that reads as a torso.
+  svgChild(g, "path", { d: "M3.8,17.5 C3.8,12.8 16.2,12.8 16.2,17.5", ...a });
 }
 
 function drawCloud(g) {
-  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.4 };
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.5 };
   svgChild(g, "path", {
-    d: "M5,14 Q1,14 1,11 Q1,8 4,8 Q4,5 7,5 Q10,5 11,7 Q14,5 17,8 Q19,9 19,12 Q19,14 16,14 Z",
+    d: "M6,15.5 C3,15.5 1.5,13.5 1.5,11.5 C1.5,9.3 3.3,8 5.2,8.2 C5.7,5.6 8,4 10.3,4.6 C12.2,5.1 13.4,6.8 13.4,8.4 C15.4,8.1 17.5,9.4 17.5,11.8 C17.5,13.8 16,15.5 13.5,15.5 Z",
     ...a,
   });
 }
@@ -580,19 +581,56 @@ function appendSidebarSection(title, metas) {
   for (const m of metas) appendSidebarItem(m, m.id, 0);
 }
 
+// A rotating chevron (open downward) or an invisible spacer for leaves so all
+// rows align. Clicks land on either the svg or its path → handler uses closest.
+function sbChevron(hasKids, open) {
+  const s = svg("svg", {
+    class: "sb-chevron" + (hasKids ? (open ? " open" : "") : " leaf"),
+    viewBox: "0 0 16 16",
+  });
+  svgChild(s, "path", {
+    d: "M6 4l4 4-4 4", fill: "none", stroke: "currentColor", "stroke-width": 1.7,
+  });
+  return s;
+}
+
+// Type glyph: stacked layers for a reusable subdiagram (component), a framed
+// mini-diagram for a top-level diagram — so the two kinds read at a glance.
+function sbTypeIcon(isComponent) {
+  const s = svg("svg", {
+    class: "sb-typeicon " + (isComponent ? "component" : "diagram"),
+    viewBox: "0 0 16 16",
+  });
+  const a = { fill: "none", stroke: "currentColor", "stroke-width": 1.3 };
+  if (isComponent) {
+    svgChild(s, "path", { d: "M8 2.2 13.5 5 8 7.8 2.5 5Z", ...a });
+    svgChild(s, "path", { d: "M2.5 8 8 10.8 13.5 8", ...a });
+    svgChild(s, "path", { d: "M2.5 11 8 13.8 13.5 11", ...a });
+  } else {
+    svgChild(s, "rect", { x: 2, y: 2.5, width: 12, height: 11, rx: 2.5, ...a });
+    svgChild(s, "circle", { cx: 5.4, cy: 6.2, r: 1.2, fill: "currentColor", stroke: "none" });
+    svgChild(s, "circle", { cx: 10.6, cy: 9.8, r: 1.2, fill: "currentColor", stroke: "none" });
+    svgChild(s, "path", { d: "M6.4 6.9 9.6 9.1", ...a });
+  }
+  return s;
+}
+
 function appendSidebarItem(meta, path, depth) {
   const li = document.createElement("li");
   li.className = "diagram-item";
   if (path === sidebarActivePath) li.classList.add("active");
   li.dataset.id = meta.id;
   li.dataset.path = path;
-  li.style.paddingLeft = 8 + depth * 14 + "px";
 
-  const hasKids = (meta.subdiagrams || []).length > 0;
-  const caret = document.createElement("span");
-  caret.className = "caret" + (hasKids ? "" : " leaf");
-  caret.textContent = hasKids ? (expandedPaths.has(path) ? "▾" : "▸") : "";
-  li.appendChild(caret);
+  for (let i = 0; i < depth; i++) {
+    const ind = document.createElement("span");
+    ind.className = "indent";
+    li.appendChild(ind);
+  }
+
+  const hasKids = (meta.subdiagrams || []).some((id) => sidebarById.has(id));
+  li.appendChild(sbChevron(hasKids, expandedPaths.has(path)));
+  li.appendChild(sbTypeIcon(!!meta.component));
 
   const name = document.createElement("span");
   name.className = "name";
@@ -1106,11 +1144,11 @@ function render() {
     const hRectX = isContainer ? w - 16 : w + 6;
     const hRectY = isContainer ? h + 6 : h / 2 - 8;
     const handle = svg("g", { class: "conn-handle", "data-id": n.id });
-    handle.appendChild(svg("rect", {
-      x: hRectX, y: hRectY, width: 16, height: 16, rx: 3,
+    handle.appendChild(svg("circle", {
+      cx: hRectX + 8, cy: hRectY + 8, r: 8,
     }));
     const ht = svg("text", {
-      x: hRectX + 8, y: hRectY + 12, "text-anchor": "middle",
+      x: hRectX + 8, y: hRectY + 12.5, "text-anchor": "middle",
     });
     ht.textContent = "+";
     handle.appendChild(ht);
@@ -2118,8 +2156,9 @@ sidebarListEl.addEventListener("click", async (evt) => {
   const id = li.dataset.id;
   if (!id) return; // section header / empty row
 
-  // Caret toggles this path's children (lazy, recursion-safe).
-  if (evt.target.classList.contains("caret") && !evt.target.classList.contains("leaf")) {
+  // Chevron toggles this path's children (lazy, recursion-safe).
+  const chev = evt.target.closest(".sb-chevron");
+  if (chev && !chev.classList.contains("leaf")) {
     evt.stopPropagation();
     const path = li.dataset.path;
     if (expandedPaths.has(path)) expandedPaths.delete(path);
