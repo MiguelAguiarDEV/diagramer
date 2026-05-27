@@ -968,13 +968,18 @@ function render() {
       KINDS[n.kind].icon(iconG);
       g.appendChild(iconG);
     }
-    // n8n-style "+" handle on the right side; visible on hover/select via CSS.
+    // n8n-style "+" handle to start a plain (non-port) connection; visible on
+    // hover/select via CSS. On containers the right side holds output ports, so
+    // move it just below the bottom-right corner to avoid clashing with them.
+    const isContainer = !!n.data.subdiagramId;
+    const hRectX = isContainer ? w - 16 : w + 6;
+    const hRectY = isContainer ? h + 6 : h / 2 - 8;
     const handle = svg("g", { class: "conn-handle", "data-id": n.id });
     handle.appendChild(svg("rect", {
-      x: w + 6, y: h / 2 - 8, width: 16, height: 16, rx: 3,
+      x: hRectX, y: hRectY, width: 16, height: 16, rx: 3,
     }));
     const ht = svg("text", {
-      x: w + 14, y: h / 2 + 4, "text-anchor": "middle",
+      x: hRectX + 8, y: hRectY + 12, "text-anchor": "middle",
     });
     ht.textContent = "+";
     handle.appendChild(ht);
