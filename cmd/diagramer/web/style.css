@@ -504,64 +504,45 @@ main {
   pointer-events: none;
 }
 
-/* ---- hierarchy map overlay ---- */
-#hierarchy-overlay {
+/* ---- breadcrumb dropdown tree ---- */
+#breadcrumb-tree {
   position: absolute;
-  inset: 0;
   z-index: 100;
-  display: flex;
-  flex-direction: column;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(2px);
+  min-width: 200px;
+  max-width: 360px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px 0;
+  background: var(--surface-bar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
-#hierarchy-overlay[hidden] { display: none; }
-.hierarchy-head {
+#breadcrumb-tree[hidden] { display: none; }
+.bc-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--surface-bar);
-  border-bottom: 1px solid var(--border);
-}
-.hierarchy-title { font-weight: 600; flex: 1 1 auto; }
-#hierarchy-close {
-  background: var(--surface-btn);
-  color: var(--text);
-  border: 1px solid var(--border-btn);
-  border-radius: 4px;
-  width: 28px;
-  height: 28px;
-  font: inherit;
+  gap: 6px;
+  padding: 5px 12px 5px 8px;
   cursor: pointer;
-  line-height: 1;
-}
-#hierarchy-close:hover { background: var(--surface-btn-hover); }
-#hierarchy-svg {
-  flex: 1 1 auto;
-  width: 100%;
-  cursor: grab;
-}
-#hierarchy-svg:active { cursor: grabbing; }
-#hier-arrow path { fill: var(--edge); }
-.hier-edge {
-  fill: none;
-  stroke: var(--edge);
-  stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
-}
-.hier-node { cursor: pointer; }
-.hier-node rect {
-  fill: var(--node-fill);
-  stroke: var(--node-stroke);
-  stroke-width: 1;
-}
-.hier-node text {
-  fill: var(--text);
   font-size: 13px;
-  pointer-events: none;
+  color: var(--text-list);
+  white-space: nowrap;
 }
-.hier-node:hover rect { stroke: var(--accent); }
-.hier-node.current rect {
-  stroke: var(--accent);
-  stroke-width: 2.5;
+.bc-item:hover { background: var(--surface-hover); }
+.bc-item.current { background: var(--active-bg); color: var(--active-text); }
+.bc-item .caret {
+  flex: 0 0 12px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--text-muted);
 }
+.bc-item .caret.leaf { visibility: hidden; }
+.bc-item .caret:not(.leaf):hover { color: var(--text); }
+.bc-item .name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.title.clickable { cursor: pointer; }
+.title .crumb-caret { color: var(--text-muted); margin-left: 4px; }
