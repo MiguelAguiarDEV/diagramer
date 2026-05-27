@@ -1444,6 +1444,7 @@ function addBoxAt(modelX, modelY, kind) {
   diagram.nodes.push(node);
   save();
   render();
+  return node.id;
 }
 
 function addAtViewportCenter(kind) {
@@ -1470,9 +1471,10 @@ async function addContainer(modelX, modelY) {
   const name = (label.trim() || "Container") + " — inside";
   try {
     const created = await api("POST", "/api/diagrams", { name, component: true });
+    const id = uid();
     pushHistory();
     diagram.nodes.push({
-      id: uid(),
+      id,
       position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
       data: { label: label.trim(), subdiagramId: created.id },
     });
@@ -1480,6 +1482,7 @@ async function addContainer(modelX, modelY) {
     await refreshSidebar();
     render();
     setStatus("container added — double-click to edit inside");
+    return id;
   } catch (e) {
     setStatus("container failed");
     console.error(e);
@@ -1491,9 +1494,10 @@ async function addContainer(modelX, modelY) {
 // so a diagram may even reference itself.
 async function addContainerRef(subId, name, modelX, modelY) {
   if (!diagram || !subId) return;
+  const id = uid();
   pushHistory();
   diagram.nodes.push({
-    id: uid(),
+    id,
     position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
     data: { label: name || "Subdiagram", subdiagramId: subId },
   });
@@ -1503,6 +1507,7 @@ async function addContainerRef(subId, name, modelX, modelY) {
   await flushSave();
   await refreshSidebar();
   setStatus("subdiagram placed");
+  return id;
 }
 
 function kindMenuItems(onPick) {
@@ -1542,14 +1547,16 @@ function addPortNode(role, modelX, modelY) {
     modelY = (rect.height / 2 - vy) / zoom;
   }
   const labels = { in: "input", out: "output", dep: "dependency" };
+  const id = uid();
   pushHistory();
   diagram.nodes.push({
-    id: uid(),
+    id,
     position: { x: modelX - NODE_MIN_W / 2, y: modelY - NODE_H / 2 },
     data: { label: labels[role], port: role },
   });
   save();
   render();
+  return id;
 }
 
 addBtn.addEventListener("click", () => {
@@ -1990,9 +1997,17 @@ window.addEventListener("mouseup", (evt) => {
           save();
         }
       }
+      pendingEdge = null;
+      render();
+      return;
     }
+    // Dropped in empty space → offer to create a node, already wired to the
+    // source, right where it was released.
+    const pending = { sourceId: pendingEdge.sourceId, sourcePort: pendingEdge.sourcePort };
+    const modelPos = clientToModel(evt);
     pendingEdge = null;
     render();
+    showContextMenu(evt.clientX, evt.clientY, connectCreateMenu(pending, modelPos));
     return;
   }
   if (edgeDrag) {
@@ -2555,6 +2570,41 @@ function emptyMenuItems(modelPos) {
     { separator: true },
     { label: "Tidy up", action: tidyUp },
   ];
+}
+
+// Connects a pending edge's source (honoring its port) to a just-created node.
+function connectPendingTo(pending, targetId) {
+  if (!pending || !targetId || targetId === pending.sourceId) return;
+  const sp = pending.sourcePort;
+  if (edgeExistsExact(pending.sourceId, targetId, sp, undefined)) {
+    setStatus("already connected");
+    return;
+  }
+  pushHistory();
+  const edge = { id: uid(), source: pending.sourceId, target: targetId };
+  if (sp) edge.sourcePort = sp;
+  diagram.edges.push(edge);
+  save();
+  render();
+}
+
+// Menu shown when a connection is dropped on empty canvas: pick what to create
+// and it lands at the cursor already wired to the dragged-from source.
+function connectCreateMenu(pending, modelPos) {
+  return addMenuItems(
+    (kind) => {
+      const id = addBoxAt(modelPos.x, modelPos.y, kind);
+      if (id) connectPendingTo(pending, id);
+    },
+    async () => {
+      const id = await addContainer(modelPos.x, modelPos.y);
+      if (id) connectPendingTo(pending, id);
+    },
+    (role) => {
+      const id = addPortNode(role, modelPos.x, modelPos.y);
+      if (id) connectPendingTo(pending, id);
+    },
+  );
 }
 
 // Dark-theme palette: muted fill + a brighter coordinated stroke. "Default"
