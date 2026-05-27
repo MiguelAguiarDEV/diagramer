@@ -1004,6 +1004,35 @@ function addAtViewportCenter(kind) {
   addBoxAt(mx, my, kind);
 }
 
+// Adds a container box in one step: a fresh empty subdiagram is created and
+// linked, and the box stays in the current diagram (badge shown) so you can
+// see it land. Double-click it (or use the context menu) to edit its inside.
+async function addContainer() {
+  const label = prompt("Container label:", "Container");
+  if (label === null) return;
+  const rect = canvas.getBoundingClientRect();
+  const { x: vx, y: vy, zoom } = diagram.viewport;
+  const mx = (rect.width / 2 - vx) / zoom;
+  const my = (rect.height / 2 - vy) / zoom;
+  const name = (label.trim() || "Container") + " — inside";
+  try {
+    const created = await api("POST", "/api/diagrams", { name });
+    pushHistory();
+    diagram.nodes.push({
+      id: uid(),
+      position: { x: mx - NODE_MIN_W / 2, y: my - NODE_H / 2 },
+      data: { label: label.trim(), subdiagramId: created.id },
+    });
+    save();
+    await refreshSidebar();
+    render();
+    setStatus("container added — double-click to edit inside");
+  } catch (e) {
+    setStatus("container failed");
+    console.error(e);
+  }
+}
+
 function kindMenuItems(onPick) {
   return Object.keys(KINDS).map((kind) => ({
     label: KINDS[kind].label,
@@ -1013,7 +1042,10 @@ function kindMenuItems(onPick) {
 
 addBtn.addEventListener("click", () => {
   const rect = addBtn.getBoundingClientRect();
-  showContextMenu(rect.left, rect.bottom + 2, kindMenuItems(addAtViewportCenter));
+  const items = kindMenuItems(addAtViewportCenter);
+  items.push({ separator: true });
+  items.push({ label: "Container (subdiagram)", action: addContainer });
+  showContextMenu(rect.left, rect.bottom + 2, items);
 });
 
 connectBtn.addEventListener("click", () => {
