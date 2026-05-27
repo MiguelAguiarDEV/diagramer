@@ -679,6 +679,52 @@ test("sidebar groups diagrams vs subdiagrams, expands the contains tree, and con
   expect(metas.find((m: any) => m.id === main).component).toBe(true);
 });
 
+test("back/forward history navigates between diagrams regardless of entry", async ({
+  page,
+  request,
+}) => {
+  const a = await createDiagram(request, "NavA", [mkNode("na", "rect", "A", 120, 120)], []);
+  const b = await createDiagram(request, "NavB", [mkNode("nb", "rect", "B", 120, 120)], []);
+  await openDiagram(page, a);
+
+  // Fresh page → only one entry, so Back is disabled.
+  await expect(page.locator("#nav-back")).toBeDisabled();
+
+  // Jump to B from the sidebar (a "teleport", not a drill-in).
+  await page.locator(`#diagram-list li.diagram-item[data-id="${b}"] .name`).click();
+  await expect(page.locator("#diagram-name")).toContainText("NavB");
+
+  // Back returns to A, Forward returns to B — works for sidebar jumps too.
+  await page.locator("#nav-back").click();
+  await expect(page.locator("#diagram-name")).toContainText("NavA");
+  await expect(page.locator("#nav-fwd")).toBeEnabled();
+  await page.locator("#nav-fwd").click();
+  await expect(page.locator("#diagram-name")).toContainText("NavB");
+});
+
+test("fit view frames an off-center diagram inside the canvas", async ({ page, request }) => {
+  const id = await createDiagram(
+    request,
+    "FitMe",
+    [mkNode("far", "rect", "Far", 2200, 1700)],
+    [],
+    { x: 0, y: 0, zoom: 1 },
+  );
+  await openDiagram(page, id);
+  await page.locator("#fit-view").click();
+  await page.waitForTimeout(150);
+
+  const nb = await page.locator(`#nodes .node[data-id="far"]`).boundingBox();
+  const cb = await page.locator("#canvas").boundingBox();
+  expect(nb).not.toBeNull();
+  expect(cb).not.toBeNull();
+  // The node sits within the canvas after fitting.
+  expect(nb!.x).toBeGreaterThanOrEqual(cb!.x - 1);
+  expect(nb!.y).toBeGreaterThanOrEqual(cb!.y - 1);
+  expect(nb!.x + nb!.width).toBeLessThanOrEqual(cb!.x + cb!.width + 1);
+  expect(nb!.y + nb!.height).toBeLessThanOrEqual(cb!.y + cb!.height + 1);
+});
+
 test("minimap mirrors the nodes and recenters the view on click", async ({
   page,
   request,

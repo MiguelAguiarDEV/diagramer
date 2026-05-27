@@ -344,6 +344,9 @@ const ctxMenuEl = document.getElementById("ctx-menu");
 const importBtn = document.getElementById("import");
 const exportBtn = document.getElementById("export");
 const tidyBtn = document.getElementById("tidy");
+const navBackBtn = document.getElementById("nav-back");
+const navFwdBtn = document.getElementById("nav-fwd");
+const fitViewBtn = document.getElementById("fit-view");
 const minimapSvg = document.getElementById("minimap");
 const minimapContent = document.getElementById("minimap-content");
 const minimapVp = document.getElementById("minimap-vp");
@@ -367,6 +370,62 @@ let saveTimer = null;
 // Drill-down trail of ancestor diagrams when navigating into subdiagrams.
 // Session-only; entries are { id, name }. The current diagram is not included.
 let breadcrumb = [];
+// Chronological navigation history (independent of the containment breadcrumb):
+// "where have I been", so Back/Forward work no matter how a diagram was opened
+// (sidebar jump, drill-in, crumb). Each entry snapshots the breadcrumb so the
+// containment path is restored too. navigatingHistory guards loadDiagram from
+// recording a back/forward move as a fresh navigation.
+let navStack = [];
+let navIndex = -1;
+let navigatingHistory = false;
+
+function recordNav(id) {
+  if (navigatingHistory) return;
+  const entry = { id, crumbs: breadcrumb.slice() };
+  // Re-opening the same diagram (e.g. crumb click within the same place) just
+  // refreshes the current entry rather than stacking duplicates.
+  if (navStack[navIndex] && navStack[navIndex].id === id) {
+    navStack[navIndex] = entry;
+  } else {
+    navStack = navStack.slice(0, navIndex + 1);
+    navStack.push(entry);
+    navIndex = navStack.length - 1;
+  }
+  updateNavButtons();
+}
+
+async function gotoNav() {
+  const entry = navStack[navIndex];
+  if (!entry) return;
+  navigatingHistory = true;
+  breadcrumb = entry.crumbs.slice();
+  try {
+    await loadDiagram(entry.id, { keepBreadcrumb: true, replace: true });
+  } catch (e) {
+    setStatus("diagram missing");
+    console.error(e);
+  } finally {
+    navigatingHistory = false;
+  }
+  updateNavButtons();
+}
+
+async function navBack() {
+  if (navIndex <= 0) return;
+  navIndex--;
+  await gotoNav();
+}
+
+async function navForward() {
+  if (navIndex >= navStack.length - 1) return;
+  navIndex++;
+  await gotoNav();
+}
+
+function updateNavButtons() {
+  if (navBackBtn) navBackBtn.disabled = navIndex <= 0;
+  if (navFwdBtn) navFwdBtn.disabled = navIndex >= navStack.length - 1;
+}
 // Interface ports of referenced subdiagrams, keyed by subdiagram id:
 // subId -> [{ id, role: "in"|"out"|"dep", label }]. Filled by
 // loadSubdiagramPorts so container nodes can draw their ports without the sub
@@ -612,11 +671,14 @@ async function loadDiagram(id, opts = {}) {
   diagram = d;
   currentEtag = etag;
   renderBreadcrumb();
+  recordNav(id);
   document.title = `${diagram.name} — diagramer`;
   for (const li of sidebarListEl.children) {
     li.classList.toggle("active", li.dataset.id === id);
   }
-  if (opts.push !== false) {
+  if (opts.replace) {
+    history.replaceState({ id }, "", `/d/${id}`);
+  } else if (opts.push !== false) {
     history.pushState({ id }, "", `/d/${id}`);
   }
   render();
@@ -1429,6 +1491,9 @@ connectBtn.addEventListener("click", () => {
 });
 
 deleteBtn.addEventListener("click", deleteSelected);
+navBackBtn.addEventListener("click", navBack);
+navFwdBtn.addEventListener("click", navForward);
+fitViewBtn.addEventListener("click", fitView);
 
 function deleteSelected() {
   if (selectedEdgeId === null && selectedIds.size === 0) return;
@@ -1946,6 +2011,23 @@ window.addEventListener("keydown", (evt) => {
   if (mod && (key === "y" || (key === "z" && evt.shiftKey))) {
     evt.preventDefault();
     redo();
+    return;
+  }
+
+  // Alt+←/→ walk the navigation history; F fits everything in view.
+  if (evt.altKey && evt.key === "ArrowLeft") {
+    evt.preventDefault();
+    navBack();
+    return;
+  }
+  if (evt.altKey && evt.key === "ArrowRight") {
+    evt.preventDefault();
+    navForward();
+    return;
+  }
+  if (!mod && !evt.altKey && key === "f") {
+    evt.preventDefault();
+    fitView();
     return;
   }
 
@@ -2643,6 +2725,22 @@ function exportMenuItems() {
 function logExportError(e) {
   console.error(e);
   setStatus("export failed");
+}
+
+// Zoom/pan so the whole diagram fits the canvas — the "see everything" view.
+function fitView() {
+  if (!diagram) return;
+  const b = nodesBBox();
+  const rect = canvas.getBoundingClientRect();
+  const zoom = Math.max(
+    ZOOM_MIN,
+    Math.min(ZOOM_MAX, Math.min(rect.width / b.w, rect.height / b.h)),
+  );
+  diagram.viewport.zoom = zoom;
+  diagram.viewport.x = rect.width / 2 - (b.x + b.w / 2) * zoom;
+  diagram.viewport.y = rect.height / 2 - (b.y + b.h / 2) * zoom;
+  applyViewport();
+  save();
 }
 
 function nodesBBox() {

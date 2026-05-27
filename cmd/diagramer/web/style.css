@@ -227,6 +227,11 @@ main {
   cursor: pointer;
   font: inherit;
 }
+.toolbar button.nav-btn {
+  padding: 6px 9px;
+  font-size: 16px;
+  line-height: 1;
+}
 .toolbar button:hover:not(:disabled) { background: var(--surface-btn-hover); }
 .toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
 .toolbar button.active {
