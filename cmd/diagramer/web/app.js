@@ -69,18 +69,16 @@ function nodeSize(node) {
     }
   }
 
-  // Containers grow so their ports keep a fixed spacing: height for the left
-  // (in) / right (out) columns, width for the top (dep) row.
+  // Containers grow so their ports keep a fixed spacing. The left (in) and top
+  // (dep) sides reserve one extra slot for the "add" bolita, so it always has
+  // room next to the real ports.
   if (node.data && node.data.subdiagramId) {
-    const ports = subPorts.get(node.data.subdiagramId);
-    if (ports && ports.length) {
-      const insN = ports.filter((p) => p.role === "in").length;
-      const outsN = ports.filter((p) => p.role === "out").length;
-      const depsN = ports.filter((p) => p.role === "dep").length;
-      const sideMax = Math.max(insN, outsN);
-      h = Math.max(h, sideMax * PORT_GAP + 18);
-      w = Math.max(w, depsN * PORT_GAP + 28);
-    }
+    const ports = subPorts.get(node.data.subdiagramId) || [];
+    const insN = ports.filter((p) => p.role === "in").length;
+    const outsN = ports.filter((p) => p.role === "out").length;
+    const depsN = ports.filter((p) => p.role === "dep").length;
+    h = Math.max(h, Math.max(insN + 1, outsN) * PORT_GAP + 18);
+    w = Math.max(w, (depsN + 1) * PORT_GAP + 28);
   }
   return { w: Math.ceil(w), h: Math.ceil(h) };
 }
@@ -213,62 +211,85 @@ function drawShape(g, shape, w, h) {
   }
 }
 
-// Draws interface ports on a container node's edges, derived from the
-// referenced subdiagram's port-tagged nodes: "in" on the left, "out" on the
-// right, "dep" along the top. in/dep render hollow ("plug something here"),
-// out filled ("produced here"). Each port carries its label.
-function drawContainerPorts(g, w, h, ports) {
-  if (!ports || ports.length === 0) return;
-  const ins = ports.filter((p) => p.role === "in");
-  const outs = ports.filter((p) => p.role === "out");
-  const deps = ports.filter((p) => p.role === "dep");
+// Computes the local-coords layout of a container's interface ports: "in" on
+// the left, "out" on the right, "dep" along the top, at fixed spacing centered
+// on each edge (the container is sized to fit them). Pure — used both to draw
+// the ports and to anchor edges bound to them. Returns
+// [{ id, role, label, cx, cy, side }].
+// The left (in) and top (dep) sides reserve one extra "add" slot at the end of
+// their line, so the "+" bolita sits exactly where the next port will appear.
+function containerPortLayout(node) {
+  const result = { ports: [], adds: [] };
+  if (!node.data.subdiagramId) return result;
+  const list = subPorts.get(node.data.subdiagramId) || [];
+  const { w, h } = nodeSize(node);
+  const ins = list.filter((p) => p.role === "in");
+  const outs = list.filter((p) => p.role === "out");
+  const deps = list.filter((p) => p.role === "dep");
 
-  // Ports sit at a fixed spacing, centered on their edge (the container is
-  // sized to fit them). Top (dep) labels are rotated so they stack upward
-  // without colliding horizontally.
-  const place = (list, side) => {
-    const n = list.length;
-    list.forEach((p, i) => {
-      const off = (i - (n - 1) / 2) * PORT_GAP;
-      let cx, cy, lx, ly, anchor, rot = false;
-      if (side === "left") {
-        cx = 0; cy = h / 2 + off; lx = -9; ly = cy + 3; anchor = "end";
-      } else if (side === "right") {
-        cx = w; cy = h / 2 + off; lx = w + 9; ly = cy + 3; anchor = "start";
-      } else {
-        cx = w / 2 + off; cy = 0; lx = cx; ly = -10; anchor = "start"; rot = true;
-      }
-      const pg = svg("g", { class: "port port-" + p.role });
-      pg.appendChild(svg("circle", { cx, cy, r: 5 }));
-      if (p.label) {
-        const tx = svg("text", { x: lx, y: ly, "text-anchor": anchor });
-        if (rot) tx.setAttribute("transform", `rotate(-90 ${lx} ${ly})`);
-        tx.textContent = p.label;
-        pg.appendChild(tx);
-      }
-      const title = svg("title", {});
-      title.textContent = `${p.role}: ${p.label || "(unnamed)"}`;
-      pg.appendChild(title);
-      g.appendChild(pg);
-    });
-  };
-  place(ins, "left");
-  place(outs, "right");
-  place(deps, "top");
+  // Left column = ins + a trailing add slot.
+  const leftN = ins.length + 1;
+  ins.forEach((p, i) =>
+    result.ports.push({ id: p.id, role: "in", label: p.label, side: "left", cx: 0, cy: h / 2 + (i - (leftN - 1) / 2) * PORT_GAP }));
+  result.adds.push({ role: "in", side: "left", cx: 0, cy: h / 2 + (ins.length - (leftN - 1) / 2) * PORT_GAP });
+
+  // Right column = outs (no add slot — the output appears on its own).
+  outs.forEach((p, i) =>
+    result.ports.push({ id: p.id, role: "out", label: p.label, side: "right", cx: w, cy: h / 2 + (i - (outs.length - 1) / 2) * PORT_GAP }));
+
+  // Top row = deps + a trailing add slot.
+  const topN = deps.length + 1;
+  deps.forEach((p, i) =>
+    result.ports.push({ id: p.id, role: "dep", label: p.label, side: "top", cx: w / 2 + (i - (topN - 1) / 2) * PORT_GAP, cy: 0 }));
+  result.adds.push({ role: "dep", side: "top", cx: w / 2 + (deps.length - (topN - 1) / 2) * PORT_GAP, cy: 0 });
+
+  return result;
 }
 
-// A floating "+" affordance just outside a container edge to add a port of the
-// given role (creates the matching interface node inside the subdiagram).
-function drawAddPortHandle(g, cx, cy, role, nodeId, hint) {
-  const ph = svg("g", { class: "add-port", "data-id": nodeId, "data-role": role });
-  ph.appendChild(svg("circle", { cx, cy, r: 8 }));
-  const t = svg("text", { x: cx, y: cy + 4, "text-anchor": "middle" });
-  t.textContent = "+";
-  ph.appendChild(t);
-  const title = svg("title", {});
-  title.textContent = hint;
-  ph.appendChild(title);
-  g.appendChild(ph);
+// Model-coords anchor of a specific port, or null if it no longer exists.
+function portAnchor(node, portId) {
+  const p = containerPortLayout(node).ports.find((q) => q.id === portId);
+  if (!p) return null;
+  return { x: node.position.x + p.cx, y: node.position.y + p.cy, side: p.side };
+}
+
+// Draws the interface ports plus the "+" add bolitas. in/dep render hollow
+// ("plug something here"), out filled ("produced here"); the add bolita is a
+// dashed hollow disc with a "+" sitting at the next slot. Top (dep) labels are
+// rotated so they stack upward without colliding horizontally.
+function drawContainerPorts(g, node) {
+  const layout = containerPortLayout(node);
+  const labelPos = (p) => {
+    if (p.side === "left") return { lx: -9, ly: p.cy + 3, anchor: "end", rot: false };
+    if (p.side === "right") return { lx: p.cx + 9, ly: p.cy + 3, anchor: "start", rot: false };
+    return { lx: p.cx, ly: -10, anchor: "start", rot: true };
+  };
+  for (const p of layout.ports) {
+    const { lx, ly, anchor, rot } = labelPos(p);
+    const pg = svg("g", { class: "port port-" + p.role, "data-port-id": p.id });
+    pg.appendChild(svg("circle", { cx: p.cx, cy: p.cy, r: 5 }));
+    if (p.label) {
+      const tx = svg("text", { x: lx, y: ly, "text-anchor": anchor });
+      if (rot) tx.setAttribute("transform", `rotate(-90 ${lx} ${ly})`);
+      tx.textContent = p.label;
+      pg.appendChild(tx);
+    }
+    const title = svg("title", {});
+    title.textContent = `${p.role}: ${p.label || "(unnamed)"} — drag to connect`;
+    pg.appendChild(title);
+    g.appendChild(pg);
+  }
+  for (const a of layout.adds) {
+    const ag = svg("g", { class: "add-port add-" + a.role, "data-id": node.id, "data-role": a.role });
+    ag.appendChild(svg("circle", { cx: a.cx, cy: a.cy, r: 6 }));
+    const t = svg("text", { x: a.cx, y: a.cy + 3.5, "text-anchor": "middle" });
+    t.textContent = "+";
+    ag.appendChild(t);
+    const title = svg("title", {});
+    title.textContent = a.role === "in" ? "Add input" : "Add dependency";
+    ag.appendChild(title);
+    g.appendChild(ag);
+  }
 }
 
 const ZOOM_MIN = 0.25;
@@ -344,6 +365,20 @@ function edgeExists(srcId, tgtId) {
       (e.source === srcId && e.target === tgtId) ||
       (e.source === tgtId && e.target === srcId)
   );
+}
+
+// Like edgeExists but port-aware: two edges are duplicates only if they bind
+// the same endpoints AND the same ports, so a node can fan out to several
+// ports of one container.
+function edgeExistsExact(srcId, tgtId, sp, tp) {
+  const a = sp || "", b = tp || "";
+  return diagram.edges.some((e) => {
+    const es = e.sourcePort || "", et = e.targetPort || "";
+    return (
+      (e.source === srcId && e.target === tgtId && es === a && et === b) ||
+      (e.source === tgtId && e.target === srcId && es === b && et === a)
+    );
+  });
 }
 
 // opts: { ifMatch?: string, wantEtag?: bool }
@@ -521,7 +556,7 @@ async function loadSubdiagramPorts() {
           sid,
           sd.nodes
             .filter((n) => n.data.port)
-            .map((n) => ({ role: n.data.port, label: n.data.label || "" })),
+            .map((n) => ({ id: n.id, role: n.data.port, label: n.data.label || "" })),
         );
       } catch {
         /* missing subdiagram → no ports */
@@ -713,6 +748,17 @@ function sideAnchor(node, target) {
     : { x: c.x, y: node.position.y, side: "top" };
 }
 
+// Resolves both endpoints of an edge: a port-bound end anchors at that port's
+// disc; otherwise it meets the node's nearest side, aimed at the other end.
+function anchorsFor(e, a, b) {
+  const ta = e.sourcePort ? portAnchor(a, e.sourcePort) : null;
+  const tb = e.targetPort ? portAnchor(b, e.targetPort) : null;
+  return {
+    pa: ta || sideAnchor(a, tb || center(b)),
+    pb: tb || sideAnchor(b, ta || center(a)),
+  };
+}
+
 // Builds an SVG cubic bezier path string between two anchors. Control points
 // extend perpendicular to the side each anchor lives on, with an offset that
 // scales with the distance between the two anchors (clamped to a sane range).
@@ -779,8 +825,7 @@ function render() {
     const a = diagram.nodes.find((n) => n.id === e.source);
     const b = diagram.nodes.find((n) => n.id === e.target);
     if (!a || !b) continue;
-    const pa = sideAnchor(a, center(b));
-    const pb = sideAnchor(b, center(a));
+    const { pa, pb } = anchorsFor(e, a, b);
     const d = edgePath(e, pa, pb);
     const isSel = e.id === selectedEdgeId;
     const eg = svg("g", {
@@ -888,13 +933,8 @@ function render() {
       badge.appendChild(svg("rect", { x: bx + 3, y: 6, width: 8, height: 6, rx: 1 }));
       badge.appendChild(svg("rect", { x: bx, y: 9, width: 8, height: 6, rx: 1 }));
       g.appendChild(badge);
-      // Interface ports derived from the referenced subdiagram.
-      drawContainerPorts(g, w, h, subPorts.get(n.data.subdiagramId));
-      // "+" affordances in free corners (the centered ports + rotated dep
-      // labels stay clear): add input bottom-left, add dependency top-left.
-      // The output (return) appears on its own from inside, so it gets no "+".
-      drawAddPortHandle(g, -14, h + 12, "in", n.id, "Add input");
-      drawAddPortHandle(g, -14, -14, "dep", n.id, "Add dependency");
+      // Interface ports + the inline "+" add bolitas.
+      drawContainerPorts(g, n);
     }
 
     // Interface-role badge: marks this node as part of its diagram's interface
@@ -960,7 +1000,9 @@ function syncPendingEdge() {
   }
   const src = diagram.nodes.find((n) => n.id === pendingEdge.sourceId);
   if (!src) return;
-  const a = sideAnchor(src, pendingEdge.cursor);
+  // Anchor at the originating port when dragging from one, else the side.
+  const a = (pendingEdge.sourcePort && portAnchor(src, pendingEdge.sourcePort))
+    || sideAnchor(src, pendingEdge.cursor);
   // Give the cursor a synthetic anchor with the opposite side of the source
   // so the ghost curves naturally instead of looping back on itself.
   const cursorAnchor = {
@@ -1272,8 +1314,7 @@ function positionEditor() {
   const a = diagram.nodes.find((n) => n.id === edge.source);
   const b = diagram.nodes.find((n) => n.id === edge.target);
   if (!a || !b) return;
-  const pa = sideAnchor(a, center(b));
-  const pb = sideAnchor(b, center(a));
+  const { pa, pb } = anchorsFor(edge, a, b);
   const handle = edgeHandlePos(edge, pa, pb);
   const midX = handle.x;
   const midY = handle.y;
@@ -1379,6 +1420,20 @@ canvas.addEventListener("mousedown", (evt) => {
     evt.stopPropagation();
     const node = diagram.nodes.find((n) => n.id === addPortEl.dataset.id);
     if (node) addPortToContainer(node, addPortEl.dataset.role);
+    return;
+  }
+
+  // Dragging from a container port starts an edge anchored at that port.
+  const portEl = evt.target.closest(".port");
+  if (portEl) {
+    evt.stopPropagation();
+    const containerEl = portEl.closest(".node");
+    pendingEdge = {
+      sourceId: containerEl.dataset.id,
+      sourcePort: portEl.dataset.portId,
+      cursor: clientToModel(evt),
+    };
+    syncPendingEdge();
     return;
   }
 
@@ -1519,8 +1574,7 @@ window.addEventListener("mousemove", (evt) => {
     const a = diagram.nodes.find((n) => n.id === edge.source);
     const b = diagram.nodes.find((n) => n.id === edge.target);
     if (!a || !b) return;
-    const pa = sideAnchor(a, center(b));
-    const pb = sideAnchor(b, center(a));
+    const { pa, pb } = anchorsFor(edge, a, b);
     const mid = edgeMidpoint(pa, pb);
     const p = clientToModel(evt);
     edge.curvature = { ox: p.x - mid.x, oy: p.y - mid.y };
@@ -1548,19 +1602,22 @@ window.addEventListener("mouseup", (evt) => {
     return;
   }
   if (pendingEdge) {
-    const targetNode = evt.target.closest && evt.target.closest(".node");
+    // Dropping on a port binds that endpoint to it; otherwise the node as a whole.
+    const portEl = evt.target.closest && evt.target.closest(".port");
+    const targetNode = portEl ? portEl.closest(".node") : (evt.target.closest && evt.target.closest(".node"));
     if (targetNode) {
       const targetId = targetNode.dataset.id;
+      const targetPort = portEl ? portEl.dataset.portId : undefined;
+      const sp = pendingEdge.sourcePort;
       if (targetId !== pendingEdge.sourceId) {
-        if (edgeExists(pendingEdge.sourceId, targetId)) {
+        if (edgeExistsExact(pendingEdge.sourceId, targetId, sp, targetPort)) {
           setStatus("already connected");
         } else {
           pushHistory();
-          diagram.edges.push({
-            id: uid(),
-            source: pendingEdge.sourceId,
-            target: targetId,
-          });
+          const edge = { id: uid(), source: pendingEdge.sourceId, target: targetId };
+          if (sp) edge.sourcePort = sp;
+          if (targetPort) edge.targetPort = targetPort;
+          diagram.edges.push(edge);
           save();
         }
       }
@@ -2236,6 +2293,8 @@ function isValidImport(raw) {
   for (const e of raw.edges) {
     if (typeof e.id !== "string" || typeof e.source !== "string" || typeof e.target !== "string") return false;
     if (e.label !== undefined && typeof e.label !== "string") return false;
+    if (e.sourcePort !== undefined && typeof e.sourcePort !== "string") return false;
+    if (e.targetPort !== undefined && typeof e.targetPort !== "string") return false;
   }
   return true;
 }

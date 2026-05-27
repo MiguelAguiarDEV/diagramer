@@ -264,21 +264,30 @@ main {
 /* Interface ports on container edges + the role badge inside the subdiagram.
    in = entry (green), out = return (blue), dep = dependency (amber).
    in/dep render hollow ("plug here"); out is filled ("produced here"). */
-.port circle { stroke-width: 2; pointer-events: all; }
+.port circle { stroke-width: 2; pointer-events: all; cursor: crosshair; }
+.port circle:hover { stroke-width: 3; }
 .port text { font: 10px system-ui, sans-serif; fill: var(--text-muted); pointer-events: none; }
 .port.port-in circle  { fill: var(--bg); stroke: #22c55e; }
 .port.port-dep circle { fill: var(--bg); stroke: #f59e0b; }
 .port.port-out circle { fill: #3b82f6; stroke: var(--node-fill); }
 
-/* Floating "+" to add an input/dependency port; shown on container hover/select. */
-.add-port { opacity: 0; cursor: pointer; transition: opacity 0.1s; }
-.add-port circle { fill: var(--surface-btn); stroke: var(--accent); stroke-width: 1.5; }
+/* "+" add bolita: a dashed hollow port slot at the next position; click to add
+   a port of that role. Dimmed by default, full on container hover/select. */
+.add-port { opacity: 0.55; cursor: pointer; transition: opacity 0.1s; }
+.add-port circle {
+  fill: var(--bg);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 2;
+}
+.add-port.add-in circle  { stroke: #22c55e; }
+.add-port.add-dep circle { stroke: #f59e0b; }
 .add-port text {
-  fill: var(--accent);
-  font: bold 13px system-ui, sans-serif;
+  font: bold 11px system-ui, sans-serif;
   pointer-events: none;
   user-select: none;
 }
+.add-port.add-in text  { fill: #22c55e; }
+.add-port.add-dep text { fill: #f59e0b; }
 .node.container:hover .add-port,
 .node.container.selected .add-port { opacity: 1; }
 

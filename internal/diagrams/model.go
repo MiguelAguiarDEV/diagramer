@@ -45,11 +45,16 @@ type NodeData struct {
 }
 
 type Edge struct {
-	ID        string     `json:"id"`
-	Source    string     `json:"source"`
-	Target    string     `json:"target"`
-	Label     string     `json:"label,omitempty"`
-	Curvature *Curvature `json:"curvature,omitempty"`
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+	// SourcePort/TargetPort bind an endpoint to a specific interface port of a
+	// container node. The value is the id of the port-tagged node inside that
+	// container's subdiagram. Empty → the edge attaches to the node as a whole.
+	SourcePort string     `json:"sourcePort,omitempty"`
+	TargetPort string     `json:"targetPort,omitempty"`
+	Label      string     `json:"label,omitempty"`
+	Curvature  *Curvature `json:"curvature,omitempty"`
 }
 
 // Curvature is an offset (in model coords) from the straight midpoint
