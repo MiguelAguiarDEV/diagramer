@@ -631,10 +631,8 @@ test("container node opens its subdiagram and breadcrumb navigates back", async 
   expect(await page.$eval(".title .crumb.current", (el) => el.textContent)).toBe("Inside");
   expect(await page.$eval(".title .crumb:not(.current)", (el) => el.textContent)).toBe("System");
 
-  // Open the breadcrumb tree and click the ancestor to return to the parent.
-  await page.locator("#diagram-name").click();
-  await expect(page.locator("#breadcrumb-tree")).toBeVisible();
-  await page.locator(`#breadcrumb-tree .bc-item[data-id="${parentId}"] .name`).click();
+  // Clicking the ancestor crumb returns to the parent.
+  await page.click(".title .crumb:not(.current)");
   await page.waitForSelector('#nodes .node[data-id="box"]', { timeout: 5000 });
   const ancestorCrumbs = await page.$$eval(
     ".title .crumb:not(.current)",
@@ -727,42 +725,36 @@ test("fit view frames an off-center diagram inside the canvas", async ({ page, r
   expect(nb!.y + nb!.height).toBeLessThanOrEqual(cb!.y + cb!.height + 1);
 });
 
-test("breadcrumb opens a containment tree and navigates from it", async ({ page, request }) => {
-  // System ⊃ {PaymentsSvc ⊃ Ledger, AuthSvc}.
-  const ledger = await (await request.post("/api/diagrams", { data: { name: "Ledger", component: true } })).json();
-  const payments = await (await request.post("/api/diagrams", { data: { name: "PaymentsSvc", component: true } })).json();
-  await request.put(`/api/diagrams/${payments.id}`, {
-    data: { name: "PaymentsSvc", nodes: [{ id: "c", position: { x: 80, y: 80 }, data: { label: "Ledger", subdiagramId: ledger.id } }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } },
-  });
-  const auth = await (await request.post("/api/diagrams", { data: { name: "AuthSvc", component: true } })).json();
+test("sidebar reveals and highlights the active drill path (VS Code style)", async ({ page, request }) => {
+  // System ⊃ Payments(box) → subdiagram "Inside".
+  const subId = await createDiagram(
+    request,
+    "Inside",
+    [mkNode("g", "backend", "Gateway", 0, 0)],
+    [],
+  );
   const system = await createDiagram(
     request,
-    "System",
-    [
-      { id: "p", position: { x: 120, y: 120 }, data: { label: "Payments", subdiagramId: payments.id } },
-      { id: "a", position: { x: 400, y: 120 }, data: { label: "Auth", subdiagramId: auth.id } },
-    ],
+    "RevealSystem",
+    [{ id: "box", kind: "rect", position: { x: 60, y: 0 }, data: { label: "Payments", subdiagramId: subId } }],
     [],
   );
   await openDiagram(page, system);
 
-  // Click the title → tree rooted at System (current) with its children.
-  await page.locator("#diagram-name").click();
-  await expect(page.locator("#breadcrumb-tree")).toBeVisible();
-  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${system}"]`)).toHaveClass(/current/);
-  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${payments.id}"]`)).toBeVisible();
-  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${auth.id}"]`)).toBeVisible();
-  // Ledger is one level deeper — hidden until PaymentsSvc is expanded.
-  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${ledger.id}"]`)).toHaveCount(0);
-  await page.locator(`#breadcrumb-tree .bc-item[data-id="${payments.id}"] .caret`).click();
-  await expect(page.locator(`#breadcrumb-tree .bc-item[data-id="${ledger.id}"]`)).toBeVisible();
-  await page.screenshot({ path: `${SHOTS}/24-breadcrumb-tree.png` });
+  // At the top level, the system is highlighted and its child isn't revealed yet.
+  await expect(page.locator(`#diagram-list li.diagram-item[data-id="${system}"]`).first()).toHaveClass(/active/);
 
-  // Click PaymentsSvc → navigate; breadcrumb becomes System › PaymentsSvc.
-  await page.locator(`#breadcrumb-tree .bc-item[data-id="${payments.id}"] .name`).click();
-  await expect(page.locator("#breadcrumb-tree")).toBeHidden();
-  await expect(page.locator("#diagram-name")).toContainText("System");
-  await expect(page.locator("#diagram-name")).toContainText("PaymentsSvc");
+  // Drill into the subdiagram; the sidebar should expand the path and highlight
+  // the active item nested under its parent (data-path encodes the path).
+  await page.locator('#nodes .node[data-id="box"]').dblclick();
+  await page.waitForSelector('#nodes .node[data-id="g"]', { timeout: 5000 });
+  await page.waitForTimeout(100);
+
+  // The nested occurrence under System is now present and active.
+  const nested = page.locator(`#diagram-list li.diagram-item[data-path="${system}/${subId}"]`);
+  await expect(nested).toHaveCount(1);
+  await expect(nested).toHaveClass(/active/);
+  await page.screenshot({ path: `${SHOTS}/24-sidebar-reveal.png` });
 });
 
 test("minimap mirrors the nodes and recenters the view on click", async ({

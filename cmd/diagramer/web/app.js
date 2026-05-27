@@ -347,7 +347,6 @@ const tidyBtn = document.getElementById("tidy");
 const navBackBtn = document.getElementById("nav-back");
 const navFwdBtn = document.getElementById("nav-fwd");
 const fitViewBtn = document.getElementById("fit-view");
-const breadcrumbTreeEl = document.getElementById("breadcrumb-tree");
 const minimapSvg = document.getElementById("minimap");
 const minimapContent = document.getElementById("minimap-content");
 const minimapVp = document.getElementById("minimap-vp");
@@ -536,16 +535,34 @@ async function refreshSidebar() {
 let sidebarById = new Map();
 let expandedPaths = new Set();
 let sidebarActiveId = null;
+// The tree path of the active occurrence ("root/.../current"), so exactly one
+// node highlights — the one on the path you reached the diagram by.
+let sidebarActivePath = null;
 
 function renderSidebar(list, activeId) {
   sidebarById = new Map(list.map((m) => [m.id, m]));
   sidebarActiveId = activeId;
+  sidebarActivePath = diagram ? [...breadcrumb.map((b) => b.id), diagram.id].join("/") : null;
+  revealActivePath();
   sidebarListEl.innerHTML = "";
   const byRecent = (a, b) => (a.updatedAt < b.updatedAt ? 1 : -1);
   const diagrams = list.filter((m) => !m.component).sort(byRecent);
   const comps = list.filter((m) => m.component).sort(byRecent);
   appendSidebarSection("Diagrams", diagrams);
   appendSidebarSection("Subdiagrams", comps);
+  // Reveal the active item like VS Code's explorer (only scrolls if off-screen).
+  const act = sidebarListEl.querySelector(".diagram-item.active");
+  if (act) act.scrollIntoView({ block: "nearest" });
+}
+
+// Auto-expand every ancestor of the active drill path so the current diagram is
+// visible in the tree (its nested occurrence under the path it was reached by).
+function revealActivePath() {
+  if (!diagram) return;
+  const ids = [...breadcrumb.map((b) => b.id), diagram.id];
+  for (let i = 1; i < ids.length; i++) {
+    expandedPaths.add(ids.slice(0, i).join("/"));
+  }
 }
 
 function appendSidebarSection(title, metas) {
@@ -566,7 +583,7 @@ function appendSidebarSection(title, metas) {
 function appendSidebarItem(meta, path, depth) {
   const li = document.createElement("li");
   li.className = "diagram-item";
-  if (meta.id === sidebarActiveId) li.classList.add("active");
+  if (path === sidebarActivePath) li.classList.add("active");
   li.dataset.id = meta.id;
   li.dataset.path = path;
   li.style.paddingLeft = 8 + depth * 14 + "px";
@@ -653,7 +670,6 @@ async function handleConflict() {
 
 async function loadDiagram(id, opts = {}) {
   await flushSave();
-  if (!breadcrumbTreeEl.hidden) closeBreadcrumbTree();
   // Root navigation (sidebar, new, import, popstate) clears the drill-down
   // trail; only enter/crumb navigation keeps it (they manage it themselves).
   if (!opts.keepBreadcrumb) breadcrumb = [];
@@ -675,9 +691,9 @@ async function loadDiagram(id, opts = {}) {
   renderBreadcrumb();
   recordNav(id);
   document.title = `${diagram.name} — diagramer`;
-  for (const li of sidebarListEl.children) {
-    li.classList.toggle("active", li.dataset.id === id);
-  }
+  // Re-render the sidebar so it reveals the active drill path (VS Code style).
+  // Uses the cached metas to avoid a fetch; boot's refreshSidebar fills them.
+  if (sidebarById.size) renderSidebar([...sidebarById.values()], id);
   if (opts.replace) {
     history.replaceState({ id }, "", `/d/${id}`);
   } else if (opts.push !== false) {
@@ -793,12 +809,6 @@ function renderBreadcrumb() {
   cur.className = "crumb current";
   cur.textContent = diagram ? diagram.name : "";
   diagramNameEl.appendChild(cur);
-  // A caret hints the title is clickable → opens the containment tree.
-  const caret = document.createElement("span");
-  caret.className = "crumb-caret";
-  caret.textContent = "▾";
-  diagramNameEl.appendChild(caret);
-  diagramNameEl.classList.add("clickable");
 }
 
 // Navigate into a container node's referenced diagram, pushing the current
@@ -837,108 +847,15 @@ async function createSubdiagram(nodeId) {
   }
 }
 
-// Clicking the title (breadcrumb) opens a containment tree: the current drill
-// path rooted at its top, with each level's child subdiagrams, to navigate in
-// one click. Built from DiagramMeta.subdiagrams — a flat per-id lookup expanded
-// lazily by path, so recursive references just re-list and never loop.
-let bcMetas = new Map();
-let bcExpanded = new Set();
-let bcRootId = null;
-
-diagramNameEl.addEventListener("click", () => {
-  if (breadcrumbTreeEl.hidden) openBreadcrumbTree();
-  else closeBreadcrumbTree();
-});
-
-async function openBreadcrumbTree() {
-  if (!diagram) return;
-  let list = [];
-  try { list = (await api("GET", "/api/diagrams")) || []; }
-  catch (e) { setStatus("tree failed"); console.error(e); return; }
-  bcMetas = new Map(list.map((m) => [m.id, m]));
-  // Path = ancestors (breadcrumb) + current; root is its top.
-  const pathIds = [...breadcrumb.map((b) => b.id), diagram.id];
-  bcRootId = pathIds[0];
-  // Auto-expand every prefix so the whole current path is open.
-  bcExpanded = new Set();
-  for (let i = 0; i < pathIds.length; i++) {
-    bcExpanded.add(pathIds.slice(0, i + 1).join("/"));
-  }
-  renderBreadcrumbTree();
-  breadcrumbTreeEl.hidden = false;
-  positionBreadcrumbTree();
-}
-
-function closeBreadcrumbTree() {
-  breadcrumbTreeEl.hidden = true;
-}
-
-function positionBreadcrumbTree() {
-  const r = diagramNameEl.getBoundingClientRect();
-  const parent = breadcrumbTreeEl.offsetParent || document.querySelector("main");
-  const pr = parent.getBoundingClientRect();
-  breadcrumbTreeEl.style.left = r.left - pr.left + "px";
-  breadcrumbTreeEl.style.top = r.bottom - pr.top + 4 + "px";
-}
-
-function renderBreadcrumbTree() {
-  breadcrumbTreeEl.innerHTML = "";
-  const root = bcMetas.get(bcRootId);
-  if (root) appendBcItem(root, bcRootId, 0);
-}
-
-function appendBcItem(meta, path, depth) {
-  const item = document.createElement("div");
-  item.className = "bc-item" + (meta.id === (diagram && diagram.id) ? " current" : "");
-  item.dataset.id = meta.id;
-  item.dataset.path = path;
-  item.style.paddingLeft = 8 + depth * 14 + "px";
-
-  const kids = (meta.subdiagrams || []).filter((id) => bcMetas.has(id));
-  const caret = document.createElement("span");
-  caret.className = "caret" + (kids.length ? "" : " leaf");
-  caret.textContent = kids.length ? (bcExpanded.has(path) ? "▾" : "▸") : "";
-  item.appendChild(caret);
-
-  const name = document.createElement("span");
-  name.className = "name";
-  name.textContent = meta.name;
-  name.title = meta.name;
-  item.appendChild(name);
-  breadcrumbTreeEl.appendChild(item);
-
-  if (kids.length && bcExpanded.has(path)) {
-    for (const cid of kids) {
-      appendBcItem(bcMetas.get(cid), path + "/" + cid, depth + 1);
-    }
-  }
-}
-
-breadcrumbTreeEl.addEventListener("click", async (evt) => {
-  const item = evt.target.closest(".bc-item");
-  if (!item) return;
-  // Caret toggles a branch (lazy, recursion-safe).
-  if (evt.target.classList.contains("caret") && !evt.target.classList.contains("leaf")) {
-    const p = item.dataset.path;
-    if (bcExpanded.has(p)) bcExpanded.delete(p);
-    else bcExpanded.add(p);
-    renderBreadcrumbTree();
-    return;
-  }
-  // Navigate: the tree path is the new drill path (ancestors → target).
-  const path = item.dataset.path.split("/");
-  const targetId = path[path.length - 1];
-  closeBreadcrumbTree();
-  if (targetId === (diagram && diagram.id)) return;
-  breadcrumb = path.slice(0, -1).map((id) => ({ id, name: (bcMetas.get(id) || {}).name || "…" }));
-  await loadDiagram(targetId, { push: true, keepBreadcrumb: true });
-});
-
-// Click outside the dropdown (but not on the title, which toggles) closes it.
-document.addEventListener("mousedown", (evt) => {
-  if (breadcrumbTreeEl.hidden) return;
-  if (breadcrumbTreeEl.contains(evt.target) || diagramNameEl.contains(evt.target)) return;
-  closeBreadcrumbTree();
+// Clicking an ancestor crumb walks back up the drill path. The full containment
+// tree lives in the sidebar (which reveals the active path as you navigate).
+diagramNameEl.addEventListener("click", (evt) => {
+  const c = evt.target.closest(".crumb:not(.current)");
+  if (!c) return;
+  const id = c.dataset.id;
+  const idx = breadcrumb.findIndex((b) => b.id === id);
+  if (idx >= 0) breadcrumb = breadcrumb.slice(0, idx);
+  loadDiagram(id, { push: true, keepBreadcrumb: true });
 });
 
 // ---------- undo / redo ----------
@@ -2143,7 +2060,6 @@ window.addEventListener("keydown", (evt) => {
   }
 
   if (evt.key === "Escape") {
-    if (!breadcrumbTreeEl.hidden) { closeBreadcrumbTree(); return; }
     if (!ctxMenuEl.hidden) { hideContextMenu(); return; }
     if (editing) { cancelEdit(); return; }
     if (pendingEdge) { pendingEdge = null; syncPendingEdge(); return; }
@@ -2239,9 +2155,13 @@ sidebarListEl.addEventListener("click", async (evt) => {
     return;
   }
 
-  if (id !== (diagram && diagram.id)) {
-    await loadDiagram(id, { push: true });
-  }
+  // Open the clicked diagram, adopting the tree path as the drill path so the
+  // sidebar reveals/highlights this exact occurrence (VS Code style).
+  const path = li.dataset.path;
+  if (path === sidebarActivePath) return; // already here, on this path
+  const ids = path.split("/");
+  breadcrumb = ids.slice(0, -1).map((pid) => ({ id: pid, name: (sidebarById.get(pid) || {}).name || "…" }));
+  await loadDiagram(ids[ids.length - 1], { push: true, keepBreadcrumb: true });
 });
 
 // Double-click a name to rename in place.
