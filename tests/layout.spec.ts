@@ -363,6 +363,49 @@ test("container surfaces interface ports derived from its subdiagram", async ({
   expect(badges).toBe(3);
 });
 
+test("container auto-grows to fit many ports at fixed spacing", async ({
+  page,
+  request,
+}) => {
+  const inner: any[] = [];
+  for (let i = 0; i < 4; i++) inner.push({ id: `in${i}`, position: { x: -240, y: i * 80 }, data: { label: `input ${i + 1}`, port: "in" } });
+  for (let i = 0; i < 2; i++) inner.push({ id: `out${i}`, position: { x: 320, y: i * 80 }, data: { label: `out ${i + 1}`, port: "out" } });
+  for (let i = 0; i < 3; i++) inner.push({ id: `dep${i}`, position: { x: i * 200, y: -160 }, data: { label: `dependency ${i + 1}`, port: "dep" } });
+  const subId = await createDiagram(request, "Big interface", inner, [], { x: 200, y: 150, zoom: 1 });
+  const parentId = await createDiagram(
+    request,
+    "Grow",
+    [{ id: "box", kind: "rect", position: { x: 150, y: 120 }, data: { label: "API", subdiagramId: subId } }],
+    [],
+    { x: 220, y: 220, zoom: 1 },
+  );
+
+  await openDiagram(page, parentId);
+  await page.waitForSelector(".node.container .port", { timeout: 5000 });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: `${SHOTS}/19-many-ports.png` });
+
+  const counts = await page.evaluate(() => ({
+    in: document.querySelectorAll(".node.container .port.port-in").length,
+    out: document.querySelectorAll(".node.container .port.port-out").length,
+    dep: document.querySelectorAll(".node.container .port.port-dep").length,
+  }));
+  expect(counts).toEqual({ in: 4, out: 2, dep: 3 });
+
+  // The box grew to fit 4 inputs at fixed spacing (well past the base 44px).
+  const shapeH = await page.$eval(
+    "#nodes .node.container .node-shape",
+    (el: any) => el.getBBox().height,
+  );
+  expect(shapeH).toBeGreaterThan(90);
+
+  // No two same-side ports overlap (centers at least PORT_GAP-ish apart).
+  const inY = await page.$$eval(".node.container .port.port-in circle", (els) =>
+    els.map((c: any) => parseFloat(c.getAttribute("cy"))).sort((a, b) => a - b),
+  );
+  for (let i = 1; i < inY.length; i++) expect(inY[i] - inY[i - 1]).toBeGreaterThan(18);
+});
+
 test("container '+' adds an input port and scaffolds the inside", async ({
   page,
   request,
