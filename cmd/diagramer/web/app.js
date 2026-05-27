@@ -5,6 +5,9 @@ const NODE_MAX_W = 320;
 const NODE_FONT = "13px system-ui, sans-serif";
 const ICON_SIZE = 20;
 const ICON_GAP = 6;
+// Fixed center-to-center spacing between interface ports on a container edge.
+// Containers grow so this never has to shrink (no overlap).
+const PORT_GAP = 22;
 
 const _measureCtx = document.createElement("canvas").getContext("2d");
 _measureCtx.font = NODE_FONT;
@@ -63,6 +66,20 @@ function nodeSize(node) {
       const wn = Math.min(NODE_MAX_W, Math.max(innerW, NODE_MIN_W));
       w = wn; h = NODE_H;
       break;
+    }
+  }
+
+  // Containers grow so their ports keep a fixed spacing: height for the left
+  // (in) / right (out) columns, width for the top (dep) row.
+  if (node.data && node.data.subdiagramId) {
+    const ports = subPorts.get(node.data.subdiagramId);
+    if (ports && ports.length) {
+      const insN = ports.filter((p) => p.role === "in").length;
+      const outsN = ports.filter((p) => p.role === "out").length;
+      const depsN = ports.filter((p) => p.role === "dep").length;
+      const sideMax = Math.max(insN, outsN);
+      h = Math.max(h, sideMax * PORT_GAP + 18);
+      w = Math.max(w, depsN * PORT_GAP + 28);
     }
   }
   return { w: Math.ceil(w), h: Math.ceil(h) };
@@ -206,21 +223,26 @@ function drawContainerPorts(g, w, h, ports) {
   const outs = ports.filter((p) => p.role === "out");
   const deps = ports.filter((p) => p.role === "dep");
 
+  // Ports sit at a fixed spacing, centered on their edge (the container is
+  // sized to fit them). Top (dep) labels are rotated so they stack upward
+  // without colliding horizontally.
   const place = (list, side) => {
+    const n = list.length;
     list.forEach((p, i) => {
-      const t = (i + 1) / (list.length + 1);
-      let cx, cy, lx, ly, anchor;
+      const off = (i - (n - 1) / 2) * PORT_GAP;
+      let cx, cy, lx, ly, anchor, rot = false;
       if (side === "left") {
-        cx = 0; cy = h * t; lx = -9; ly = cy + 3; anchor = "end";
+        cx = 0; cy = h / 2 + off; lx = -9; ly = cy + 3; anchor = "end";
       } else if (side === "right") {
-        cx = w; cy = h * t; lx = w + 9; ly = cy + 3; anchor = "start";
+        cx = w; cy = h / 2 + off; lx = w + 9; ly = cy + 3; anchor = "start";
       } else {
-        cx = w * t; cy = 0; lx = cx; ly = -9; anchor = "middle";
+        cx = w / 2 + off; cy = 0; lx = cx; ly = -10; anchor = "start"; rot = true;
       }
       const pg = svg("g", { class: "port port-" + p.role });
       pg.appendChild(svg("circle", { cx, cy, r: 5 }));
       if (p.label) {
         const tx = svg("text", { x: lx, y: ly, "text-anchor": anchor });
+        if (rot) tx.setAttribute("transform", `rotate(-90 ${lx} ${ly})`);
         tx.textContent = p.label;
         pg.appendChild(tx);
       }
@@ -868,11 +890,11 @@ function render() {
       g.appendChild(badge);
       // Interface ports derived from the referenced subdiagram.
       drawContainerPorts(g, w, h, subPorts.get(n.data.subdiagramId));
-      // "+" affordances to add an input (bottom-left, below the input column)
-      // or dependency (top-center); the output (return) appears on its own from
-      // inside, so it gets no "+".
-      drawAddPortHandle(g, -12, h + 12, "in", n.id, "Add input");
-      drawAddPortHandle(g, w / 2, -24, "dep", n.id, "Add dependency");
+      // "+" affordances in free corners (the centered ports + rotated dep
+      // labels stay clear): add input bottom-left, add dependency top-left.
+      // The output (return) appears on its own from inside, so it gets no "+".
+      drawAddPortHandle(g, -14, h + 12, "in", n.id, "Add input");
+      drawAddPortHandle(g, -14, -14, "dep", n.id, "Add dependency");
     }
 
     // Interface-role badge: marks this node as part of its diagram's interface
