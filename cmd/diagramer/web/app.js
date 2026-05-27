@@ -236,6 +236,9 @@ let lasso = null;
 let editing = null; // { kind: "node" | "edge", id }
 let edgeDrag = null; // { edgeId, snapshot }
 let saveTimer = null;
+// Drill-down trail of ancestor diagrams when navigating into subdiagrams.
+// Session-only; entries are { id, name }. The current diagram is not included.
+let breadcrumb = [];
 
 const HISTORY_LIMIT = 50;
 let past = [];
@@ -391,6 +394,9 @@ async function handleConflict() {
 
 async function loadDiagram(id, opts = {}) {
   await flushSave();
+  // Root navigation (sidebar, new, import, popstate) clears the drill-down
+  // trail; only enter/crumb navigation keeps it (they manage it themselves).
+  if (!opts.keepBreadcrumb) breadcrumb = [];
   // Reset transient interaction state.
   selectedIds.clear();
   selectedEdgeId = null;
@@ -406,7 +412,7 @@ async function loadDiagram(id, opts = {}) {
   const { data: d, etag } = await api("GET", `/api/diagrams/${id}`, null, { wantEtag: true });
   diagram = d;
   currentEtag = etag;
-  diagramNameEl.textContent = diagram.name;
+  renderBreadcrumb();
   document.title = `${diagram.name} — diagramer`;
   for (const li of sidebarListEl.children) {
     li.classList.toggle("active", li.dataset.id === id);
@@ -416,6 +422,73 @@ async function loadDiagram(id, opts = {}) {
   }
   render();
 }
+
+// ---------- subdiagrams ----------
+
+// Renders the title as a clickable breadcrumb of ancestors + current diagram.
+function renderBreadcrumb() {
+  diagramNameEl.innerHTML = "";
+  for (const crumb of breadcrumb) {
+    const c = document.createElement("span");
+    c.className = "crumb";
+    c.dataset.id = crumb.id;
+    c.textContent = crumb.name;
+    diagramNameEl.appendChild(c);
+    const sep = document.createElement("span");
+    sep.className = "crumb-sep";
+    sep.textContent = "›";
+    diagramNameEl.appendChild(sep);
+  }
+  const cur = document.createElement("span");
+  cur.className = "crumb current";
+  cur.textContent = diagram ? diagram.name : "";
+  diagramNameEl.appendChild(cur);
+}
+
+// Navigate into a container node's referenced diagram, pushing the current
+// diagram onto the breadcrumb trail.
+async function enterSubdiagram(node) {
+  const subId = node && node.data.subdiagramId;
+  if (!subId) return;
+  breadcrumb.push({ id: diagram.id, name: diagram.name });
+  try {
+    await loadDiagram(subId, { push: true, keepBreadcrumb: true });
+  } catch (e) {
+    breadcrumb.pop();
+    setStatus("subdiagram missing");
+    console.error(e);
+  }
+}
+
+// Create a fresh empty diagram, link it to the node as its subdiagram, then
+// drill into it.
+async function createSubdiagram(nodeId) {
+  const node = diagram.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+  try {
+    const name = (node.data.label || "Container") + " — inside";
+    const created = await api("POST", "/api/diagrams", { name });
+    pushHistory();
+    node.data.subdiagramId = created.id;
+    save();
+    await refreshSidebar();
+    breadcrumb.push({ id: diagram.id, name: diagram.name });
+    await loadDiagram(created.id, { push: true, keepBreadcrumb: true });
+    setStatus("subdiagram created");
+  } catch (e) {
+    setStatus("subdiagram failed");
+    console.error(e);
+  }
+}
+
+diagramNameEl.addEventListener("click", (evt) => {
+  const c = evt.target.closest(".crumb:not(.current)");
+  if (!c) return;
+  const id = c.dataset.id;
+  const idx = breadcrumb.findIndex((b) => b.id === id);
+  if (idx >= 0) breadcrumb = breadcrumb.slice(0, idx);
+  loadDiagram(id, { push: true, keepBreadcrumb: true });
+});
 
 // ---------- undo / redo ----------
 
@@ -615,7 +688,8 @@ function render() {
     const g = svg("g", {
       class: "node" +
         (selectedIds.has(n.id) ? " selected" : "") +
-        (n.id === connectSource ? " connect-source" : ""),
+        (n.id === connectSource ? " connect-source" : "") +
+        (n.data.subdiagramId ? " container" : ""),
       "data-id": n.id,
       transform: `translate(${n.position.x},${n.position.y})`,
     });
@@ -664,6 +738,16 @@ function render() {
     const t = svg("text", { x: textCx, y: textCy + 4, "text-anchor": "middle" });
     t.textContent = n.data.label || "";
     g.appendChild(t);
+
+    // Container badge: a small "stacked layers" glyph in the top-right corner
+    // signalling the node has a navigable subdiagram inside.
+    if (n.data.subdiagramId) {
+      const bx = w - 16;
+      const badge = svg("g", { class: "subdiagram-badge" });
+      badge.appendChild(svg("rect", { x: bx + 3, y: 6, width: 8, height: 6, rx: 1 }));
+      badge.appendChild(svg("rect", { x: bx, y: 9, width: 8, height: 6, rx: 1 }));
+      g.appendChild(badge);
+    }
     nodesLayer.appendChild(g);
   }
 
@@ -1109,7 +1193,12 @@ canvas.addEventListener("mousedown", (evt) => {
   // evt.detail because we re-render on every click, which destroys the
   // target the browser uses to correlate native `dblclick` events.
   if (nodeEl && evt.detail >= 2) {
-    startEdit("node", nodeEl.dataset.id);
+    const node = diagram.nodes.find((n) => n.id === nodeEl.dataset.id);
+    if (node && node.data.subdiagramId) {
+      enterSubdiagram(node);
+    } else {
+      startEdit("node", nodeEl.dataset.id);
+    }
     return;
   }
   if (edgeEl && !nodeEl && evt.detail >= 2) {
@@ -1499,7 +1588,7 @@ function startRename(li, nameEl) {
         );
         if (diagram && diagram.id === id) {
           diagram.name = newName;
-          diagramNameEl.textContent = newName;
+          renderBreadcrumb();
           document.title = `${newName} — diagramer`;
           // Rename bumps UpdatedAt server-side; refresh our cached ETag so
           // the next content save doesn't 412.
@@ -1745,6 +1834,10 @@ function colorMenuItems(ids) {
 }
 
 function singleNodeMenuItems(id) {
+  const node = diagram.nodes.find((n) => n.id === id);
+  const sub = node && node.data.subdiagramId
+    ? { label: "Open subdiagram", action: () => enterSubdiagram(node) }
+    : { label: "Create subdiagram", action: () => createSubdiagram(id) };
   return [
     { label: "Edit text", action: () => startEdit("node", id) },
     {
@@ -1752,6 +1845,8 @@ function singleNodeMenuItems(id) {
       submenu: () => kindMenuItems((kind) => changeNodeKind(id, kind)),
     },
     { label: "Color ▸", submenu: () => colorMenuItems(new Set([id])) },
+    { separator: true },
+    sub,
     { separator: true },
     { label: "Delete", action: () => deleteSelected() },
   ];

@@ -181,6 +181,20 @@ main {
   font-weight: 600;
   margin-right: 12px;
 }
+.toolbar .title .crumb.current { color: var(--text); }
+.toolbar .title .crumb:not(.current) {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.toolbar .title .crumb:not(.current):hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.toolbar .title .crumb-sep {
+  color: var(--text-muted);
+  margin: 0 6px;
+  font-weight: 400;
+}
 .toolbar button {
   background: var(--surface-btn);
   color: var(--text);
@@ -239,6 +253,13 @@ main {
 .node:hover .node-shape { stroke: var(--node-stroke-hover); }
 .node.selected .node-shape { stroke: var(--accent); stroke-width: 2; }
 .node.connect-source .node-shape { stroke: var(--connect); stroke-width: 2; }
+.node.container .node-shape { stroke-dasharray: none; stroke-width: 2; }
+.subdiagram-badge rect {
+  fill: var(--node-icon);
+  stroke: var(--node-fill);
+  stroke-width: 1;
+}
+.node.container { cursor: pointer; }
 
 .node-icon {
   color: var(--node-icon);

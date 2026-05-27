@@ -260,6 +260,61 @@ test("theme toggle switches palette, persists, and renders both modes", async ({
   ).toBe("light");
 });
 
+test("container node opens its subdiagram and breadcrumb navigates back", async ({
+  page,
+  request,
+}) => {
+  // A subdiagram with its own little architecture.
+  const subId = await createDiagram(
+    request,
+    "Inside",
+    [mkNode("g", "backend", "Gateway", 0, 0), mkNode("l", "database", "Ledger", 240, 0)],
+    [mkEdge("e", "g", "l")],
+    { x: 200, y: 150, zoom: 1 },
+  );
+
+  // A parent whose "Payments" node is a container referencing the subdiagram.
+  const parentNodes = [
+    { id: "box", kind: "rect", position: { x: 60, y: 0 }, data: { label: "Payments", subdiagramId: subId } },
+    mkNode("u", "user", "User", -220, 0),
+  ];
+  const parentId = await createDiagram(
+    request,
+    "System",
+    parentNodes,
+    [mkEdge("e2", "u", "box")],
+    { x: 320, y: 200, zoom: 1 },
+  );
+
+  await openDiagram(page, parentId);
+  await page.screenshot({ path: `${SHOTS}/12-subdiagram-parent.png` });
+
+  // The container node renders its badge.
+  const badges = await page.$$eval(
+    "#nodes .node.container .subdiagram-badge",
+    (els) => els.length,
+  );
+  expect(badges).toBe(1);
+
+  // Double-clicking the container drills into the subdiagram.
+  await page.locator('#nodes .node[data-id="box"]').dblclick();
+  await page.waitForSelector('#nodes .node[data-id="g"]', { timeout: 5000 });
+  await page.waitForTimeout(100);
+  await page.screenshot({ path: `${SHOTS}/13-subdiagram-inside.png` });
+
+  expect(await page.$eval(".title .crumb.current", (el) => el.textContent)).toBe("Inside");
+  expect(await page.$eval(".title .crumb:not(.current)", (el) => el.textContent)).toBe("System");
+
+  // Clicking the ancestor crumb returns to the parent.
+  await page.click(".title .crumb:not(.current)");
+  await page.waitForSelector('#nodes .node[data-id="box"]', { timeout: 5000 });
+  const ancestorCrumbs = await page.$$eval(
+    ".title .crumb:not(.current)",
+    (els) => els.length,
+  );
+  expect(ancestorCrumbs).toBe(0);
+});
+
 test("minimap mirrors the nodes and recenters the view on click", async ({
   page,
   request,

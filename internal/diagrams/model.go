@@ -31,6 +31,10 @@ type NodeData struct {
 	// Optional per-node colors. Empty → fall back to the CSS defaults.
 	Fill   string `json:"fill,omitempty"`
 	Stroke string `json:"stroke,omitempty"`
+	// SubdiagramID, when set, makes this node a container: it references
+	// another Diagram (by ID) whose contents are the node's "inside". The
+	// referenced diagram is a normal diagram, editable and reusable on its own.
+	SubdiagramID string `json:"subdiagramId,omitempty"`
 }
 
 type Edge struct {
