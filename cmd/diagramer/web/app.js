@@ -2951,12 +2951,16 @@ async function importJSONFile(file) {
   const name = (typeof raw.name === "string" && raw.name.trim())
     ? raw.name.trim()
     : file.name.replace(/\.json$/i, "") || "Imported";
+  // Drop edges whose endpoints aren't in the file: the server rejects unknown
+  // references, so one stray edge would otherwise fail the whole import.
+  const nodeIds = new Set(raw.nodes.map((n) => n.id));
+  const edges = raw.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
   try {
     const created = await api("POST", "/api/diagrams", { name });
     await api("PUT", `/api/diagrams/${created.id}`, {
       name,
       nodes: raw.nodes,
-      edges: raw.edges,
+      edges,
       viewport: raw.viewport || { x: 0, y: 0, zoom: 1 },
     });
     await refreshSidebar();

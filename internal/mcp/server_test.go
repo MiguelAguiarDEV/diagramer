@@ -345,4 +345,40 @@ func TestErrorsOnMissingEntities(t *testing.T) {
 	if err == nil && !res.IsError {
 		t.Error("update_node with unknown node_id: expected error, got success")
 	}
+
+	// auto_layout on a missing diagram must error too.
+	res, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "auto_layout",
+		Arguments: map[string]any{"id": "nope"},
+	})
+	if err == nil && !res.IsError {
+		t.Error("auto_layout on missing diagram: expected error, got success")
+	}
+}
+
+// TestAutoLayoutToolEdges exercises the auto_layout tool on awkward inputs and
+// add_node with a partial coordinate, the way a careless AI client might.
+func TestAutoLayoutToolEdges(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Cyclic"}).Diagram.ID
+
+	// add_node with only x given (y omitted) must still place the node.
+	only := callTool[idOutput](t, cs, "add_node", map[string]any{
+		"diagram_id": id, "label": "Only X", "x": 123.0,
+	}).ID
+	b := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": id, "label": "B"}).ID
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	for _, n := range g.Diagram.Nodes {
+		if n.ID == only && n.Position.X != 123 {
+			t.Errorf("add_node honored x=123 but got %v", n.Position.X)
+		}
+	}
+
+	// A 2-cycle (a→b, b→a) — no roots. auto_layout must not hang or error.
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": only, "target": b})
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": b, "target": only})
+	out := callTool[diagramOutput](t, cs, "auto_layout", map[string]any{"id": id})
+	if out.Diagram == nil || len(out.Diagram.Nodes) != 2 {
+		t.Fatalf("auto_layout on a cycle returned %+v", out.Diagram)
+	}
 }

@@ -225,7 +225,7 @@ func (s *service) SetComponent(ctx context.Context, id string, component bool) (
 }
 
 func (s *service) AutoLayout(ctx context.Context, id string) (*Diagram, error) {
-	d, err := s.repo.Get(ctx, id)
+	d, err := s.Get(ctx, id) // prunes dangling edges so the re-save stays clean
 	if err != nil {
 		return nil, err
 	}
