@@ -82,6 +82,7 @@ func TestToolsAreRegistered(t *testing.T) {
 		"list_diagrams", "get_diagram", "create_diagram", "rename_diagram",
 		"delete_diagram", "add_node", "update_node", "delete_node",
 		"add_edge", "update_edge", "delete_edge", "create_subdiagram",
+		"auto_layout",
 	}
 	for _, w := range want {
 		if !got[w] {
@@ -209,6 +210,51 @@ func TestDeleteEdgeKeepsNodes(t *testing.T) {
 	if len(got.Diagram.Nodes) != 2 || len(got.Diagram.Edges) != 0 {
 		t.Fatalf("after delete_edge: %d nodes / %d edges, want 2 / 0",
 			len(got.Diagram.Nodes), len(got.Diagram.Edges))
+	}
+}
+
+// TestAutoLayoutAndAutoPlace covers the AI ergonomics: add_node without x/y
+// auto-places beside existing content, and auto_layout arranges a dependency
+// chain into left-to-right columns.
+func TestAutoLayoutAndAutoPlace(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Flow"}).Diagram.ID
+
+	// First node, no coords → origin. Second node, no coords → to its right.
+	a := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": id, "label": "A"}).ID
+	b := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": id, "label": "B"}).ID
+
+	pos := func() map[string]diagrams.Position {
+		g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+		m := map[string]diagrams.Position{}
+		for _, n := range g.Diagram.Nodes {
+			m[n.ID] = n.Position
+		}
+		return m
+	}
+	p := pos()
+	if p[a].X != 0 || p[a].Y != 0 {
+		t.Errorf("first auto-placed node = %+v, want origin", p[a])
+	}
+	if p[b].X <= p[a].X {
+		t.Errorf("second auto-placed node x=%v, want right of first x=%v", p[b].X, p[a].X)
+	}
+
+	// A third node with explicit coords placed far away, then a chain A→B→C.
+	c := callTool[idOutput](t, cs, "add_node", map[string]any{
+		"diagram_id": id, "label": "C", "x": -900.0, "y": 700.0,
+	}).ID
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": a, "target": b})
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": b, "target": c})
+
+	// Tidy: columns must increase left-to-right with dependency depth.
+	out := callTool[diagramOutput](t, cs, "auto_layout", map[string]any{"id": id})
+	if out.Diagram == nil {
+		t.Fatal("auto_layout returned nil diagram")
+	}
+	p = pos()
+	if !(p[a].X < p[b].X && p[b].X < p[c].X) {
+		t.Errorf("auto_layout columns not ordered: A=%v B=%v C=%v", p[a].X, p[b].X, p[c].X)
 	}
 }
 
