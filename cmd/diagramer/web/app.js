@@ -2084,9 +2084,20 @@ canvas.addEventListener("mousedown", (evt) => {
       dy: p.y - node.position.y,
     });
   }
+  // Precompute alignment candidate lines from the static (non-moving) nodes
+  // once: they don't move during the drag, so rebuilding them (and remeasuring
+  // every node) on each mousemove would be wasted work on large diagrams.
+  const vCand = [], hCand = [];
+  for (const n of diagram.nodes) {
+    if (offsets.has(n.id)) continue;
+    const { w, h } = nodeSize(n);
+    const l = n.position.x, r = l + w, t = n.position.y, b = t + h;
+    for (const x of [l, l + w / 2, r]) vCand.push({ c: x, lo: t, hi: b });
+    for (const y of [t, t + h / 2, b]) hCand.push({ c: y, lo: l, hi: r });
+  }
   // Capture pre-drag snapshot for undo; only commit it to history if the
   // pointer actually moves (a stray click shouldn't pollute the history).
-  dragging = { offsets, moved: false, snapshot: snapshot() };
+  dragging = { offsets, moved: false, snapshot: snapshot(), vCand, hCand };
   render();
 });
 
@@ -2111,16 +2122,8 @@ function snapDraggingToGuides() {
   const mCx = (mMinX + mMaxX) / 2, mCy = (mMinY + mMaxY) / 2;
   const thr = SNAP_PX / (diagram.viewport.zoom || 1);
 
-  // Candidate alignment lines from every static node: vertical lines carry the
-  // node's y-extent (for drawing), horizontal lines carry its x-extent.
-  const vCand = [], hCand = [];
-  for (const n of diagram.nodes) {
-    if (movingIds.has(n.id)) continue;
-    const { w, h } = nodeSize(n);
-    const l = n.position.x, r = l + w, t = n.position.y, b = t + h;
-    for (const x of [l, l + w / 2, r]) vCand.push({ c: x, lo: t, hi: b });
-    for (const y of [t, t + h / 2, b]) hCand.push({ c: y, lo: l, hi: r });
-  }
+  // Candidate alignment lines from static nodes, precomputed at drag start.
+  const vCand = dragging.vCand, hCand = dragging.hCand;
 
   let bestV = null;
   for (const mx of [mMinX, mCx, mMaxX]) {
