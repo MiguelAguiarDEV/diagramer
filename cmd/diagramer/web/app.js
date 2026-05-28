@@ -1706,28 +1706,62 @@ function syncEdgeStyleBtn() {
   edgeStyleBtn.classList.toggle("active", synthetic);
 }
 
-// Clones the selected nodes (offset a little) plus any edges wholly inside the
-// selection, remapped to the clones, then selects the copies. A container's
-// subdiagram link is copied by reference (consistent with the model).
-function duplicateSelection() {
+// In-memory clipboard for copy/paste. Survives diagram navigation, so a
+// selection can be pasted into another diagram.
+let clipboard = null; // { nodes: [...], edges: [...] }
+
+function copySelection() {
   if (selectedIds.size === 0) return;
+  const nodes = diagram.nodes
+    .filter((n) => selectedIds.has(n.id))
+    .map((n) => ({ id: n.id, kind: n.kind, position: { ...n.position }, data: { ...n.data } }));
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = diagram.edges
+    .filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => ({ ...e, curvature: e.curvature ? { ...e.curvature } : undefined }));
+  clipboard = { nodes, edges };
+  setStatus(`copied ${nodes.length}`);
+}
+
+function pasteClipboard() {
+  pasteWith(24, 24);
+}
+
+// Pastes the clipboard with its top-left placed at a model position (used by
+// the right-click "Paste here").
+function pasteClipboardAt(modelPos) {
+  if (!clipboard || clipboard.nodes.length === 0) return;
+  const minX = Math.min(...clipboard.nodes.map((n) => n.position.x));
+  const minY = Math.min(...clipboard.nodes.map((n) => n.position.y));
+  pasteWith(modelPos.x - minX, modelPos.y - minY);
+}
+
+function pasteWith(dx, dy) {
+  if (!clipboard || clipboard.nodes.length === 0) return;
   pushHistory();
-  const OFF = 24;
+  const idMap = cloneInto(clipboard.nodes, clipboard.edges, dx, dy);
+  selectedIds = new Set(idMap.values());
+  selectedEdgeId = null;
+  save();
+  render();
+  setStatus(`pasted ${clipboard.nodes.length}`);
+}
+
+// Clones the given nodes (offset by dx/dy) plus the edges among them, remapped
+// to the clones, appending them to the current diagram. Returns old→new ids.
+function cloneInto(srcNodes, srcEdges, dx, dy) {
   const idMap = new Map();
-  const clones = [];
-  for (const n of diagram.nodes) {
-    if (!selectedIds.has(n.id)) continue;
+  for (const n of srcNodes) {
     const nid = uid();
     idMap.set(n.id, nid);
-    clones.push({
+    diagram.nodes.push({
       id: nid,
       kind: n.kind,
-      position: { x: n.position.x + OFF, y: n.position.y + OFF },
+      position: { x: n.position.x + dx, y: n.position.y + dy },
       data: { ...n.data },
     });
   }
-  for (const c of clones) diagram.nodes.push(c);
-  for (const e of diagram.edges) {
+  for (const e of srcEdges) {
     if (idMap.has(e.source) && idMap.has(e.target)) {
       const ne = { id: uid(), source: idMap.get(e.source), target: idMap.get(e.target) };
       if (e.label) ne.label = e.label;
@@ -1737,6 +1771,20 @@ function duplicateSelection() {
       diagram.edges.push(ne);
     }
   }
+  return idMap;
+}
+
+// Clones the selected nodes (offset a little) plus any edges wholly inside the
+// selection, remapped to the clones, then selects the copies. A container's
+// subdiagram link is copied by reference (consistent with the model).
+function duplicateSelection() {
+  if (selectedIds.size === 0) return;
+  pushHistory();
+  const srcNodes = diagram.nodes.filter((n) => selectedIds.has(n.id));
+  const srcEdges = diagram.edges.filter(
+    (e) => selectedIds.has(e.source) && selectedIds.has(e.target),
+  );
+  const idMap = cloneInto(srcNodes, srcEdges, 24, 24);
   selectedIds = new Set(idMap.values());
   selectedEdgeId = null;
   save();
@@ -2357,6 +2405,16 @@ window.addEventListener("keydown", (evt) => {
     duplicateSelection();
     return;
   }
+  if (mod && key === "c" && selectedIds.size > 0) {
+    evt.preventDefault();
+    copySelection();
+    return;
+  }
+  if (mod && key === "v" && clipboard) {
+    evt.preventDefault();
+    pasteClipboard();
+    return;
+  }
 
   // Alt+←/→ walk the navigation history; F fits everything in view.
   if (evt.altKey && evt.key === "ArrowLeft") {
@@ -2920,6 +2978,7 @@ function emptyMenuItems(modelPos) {
       (role) => addPortNode(role, modelPos.x, modelPos.y),
     ),
     { separator: true },
+    ...(clipboard ? [{ label: "Paste here", action: () => pasteClipboardAt(modelPos) }] : []),
     { label: "Tidy up", action: tidyUp },
   ];
 }
@@ -3011,6 +3070,7 @@ function singleNodeMenuItems(id) {
     { separator: true },
     sub,
     { separator: true },
+    { label: "Copy", action: () => copySelection() },
     { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete", action: () => deleteSelected() },
   ];
@@ -3102,6 +3162,7 @@ function multiNodesMenuItems() {
   items.push(
     { label: "Color ▸", submenu: () => colorMenuItems(new Set(selectedIds)) },
     { separator: true },
+    { label: "Copy", action: () => copySelection() },
     { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete all", action: () => deleteSelected() },
   );
