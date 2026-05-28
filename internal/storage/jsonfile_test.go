@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -187,5 +190,50 @@ func TestConcurrentSaves(t *testing.T) {
 	}
 	if len(metas) != 20 {
 		t.Errorf("expected 20 diagrams, got %d", len(metas))
+	}
+}
+
+// A corrupt index.json must not brick the repo: List rebuilds it from the
+// diagram files (the source of truth), skipping unparseable files.
+func TestListRebuildsCorruptIndex(t *testing.T) {
+	dir := t.TempDir()
+	r, err := NewJSONFileRepo(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a, b := newDiagram("Alpha"), newDiagram("Beta")
+	if err := r.Save(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Save(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the index on disk and drop a junk file the rebuild must ignore.
+	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte("{not json at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "diagrams", "garbage.json"), []byte("nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	metas, err := r.List(ctx)
+	if err != nil {
+		t.Fatalf("List after corrupt index: %v", err)
+	}
+	got := map[string]bool{}
+	for _, m := range metas {
+		got[m.Name] = true
+	}
+	if len(metas) != 2 || !got["Alpha"] || !got["Beta"] {
+		t.Fatalf("rebuild lost diagrams: %+v", metas)
+	}
+
+	// The repaired index must now parse cleanly on its own.
+	raw, _ := os.ReadFile(filepath.Join(dir, "index.json"))
+	var check []diagrams.DiagramMeta
+	if err := json.Unmarshal(raw, &check); err != nil {
+		t.Errorf("index not repaired on disk: %v", err)
 	}
 }
