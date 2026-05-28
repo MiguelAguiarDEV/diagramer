@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,5 +160,63 @@ func TestUpdateAndRename(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&got)
 	if len(got.Nodes) != 1 || got.Nodes[0].Data.Label != "L" {
 		t.Errorf("update did not persist nodes: %+v", got.Nodes)
+	}
+}
+
+// A diagram at the domain's node cap (5000) with moderate labels exceeds 1 MiB
+// of JSON. The body limit must accommodate what the service accepts, otherwise
+// a perfectly valid large diagram is rejected (and with a misleading "invalid
+// json" to boot). Reproduces the layer-limit mismatch.
+func TestUpdateLargeValidDiagramIsAccepted(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	resp, _ := http.Post(srv.URL+"/api/diagrams", "application/json", bytes.NewBufferString(`{"name":"big"}`))
+	var d diagrams.Diagram
+	json.NewDecoder(resp.Body).Decode(&d)
+
+	label := strings.Repeat("x", 200) // well under MaxLabelLen (500)
+	nodes := make([]diagrams.Node, diagrams.MaxNodes)
+	for i := range nodes {
+		nodes[i] = diagrams.Node{
+			ID:       fmt.Sprintf("n%06d", i),
+			Position: diagrams.Position{X: float64(i), Y: float64(i)},
+			Data:     diagrams.NodeData{Label: label},
+		}
+	}
+	payload, _ := json.Marshal(updateRequest{
+		Name:     "big",
+		Nodes:    nodes,
+		Edges:    []diagrams.Edge{},
+		Viewport: diagrams.Viewport{Zoom: 1},
+	})
+	t.Logf("payload size: %d bytes (body limit %d)", len(payload), maxBodyBytes)
+
+	put, _ := http.NewRequest("PUT", srv.URL+"/api/diagrams/"+d.ID, bytes.NewReader(payload))
+	put.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(put)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("valid %d-node diagram rejected: status %d, body %q", diagrams.MaxNodes, resp.StatusCode, body)
+	}
+}
+
+// A body that genuinely exceeds the cap must return 413, not a misleading 400.
+func TestOversizedBodyReturns413(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	// Valid JSON whose string value alone exceeds the 16 MiB cap, so the limit
+	// trips mid-token (MaxBytesError) rather than a JSON syntax error.
+	huge := strings.Repeat("a", (16<<20)+1024)
+	body := `{"name":"` + huge + `"}`
+	resp, err := http.Post(srv.URL+"/api/diagrams", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversized body: got %d, want 413", resp.StatusCode)
 	}
 }

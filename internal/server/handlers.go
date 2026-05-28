@@ -11,9 +11,29 @@ import (
 )
 
 // maxBodyBytes caps request body size to protect the server from accidental
-// or malicious oversized payloads. 1 MiB comfortably fits diagrams up to the
-// service-level node/edge caps.
-const maxBodyBytes = 1 << 20
+// or malicious oversized payloads. It must comfortably exceed the largest
+// diagram the service accepts (MaxNodes=5000 / MaxEdges=10000, labels up to
+// MaxLabelLen) — a max-size diagram serializes to ~12 MiB — otherwise a valid
+// large diagram would be rejected before validation. 16 MiB leaves headroom.
+const maxBodyBytes = 16 << 20
+
+// decodeJSON reads a size-capped JSON body into dst. It distinguishes an
+// over-limit body (413) from malformed JSON (400) so the client gets an honest
+// error instead of a misleading "invalid json". Returns false (and writes the
+// response) on failure.
+func (h *apiHandlers) decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		} else {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+		}
+		return false
+	}
+	return true
+}
 
 func registerAPIRoutes(mux *http.ServeMux, svc diagrams.Service, logger *slog.Logger) {
 	h := &apiHandlers{svc: svc, logger: logger}
@@ -48,13 +68,11 @@ func (h *apiHandlers) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiHandlers) create(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var body struct {
 		Name      string `json:"name"`
 		Component bool   `json:"component"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	d, err := h.svc.Create(r.Context(), body.Name, body.Component)
@@ -81,18 +99,16 @@ func (h *apiHandlers) get(w http.ResponseWriter, r *http.Request) {
 // CreatedAt are managed server-side and intentionally absent so clients
 // can't send empty strings or wrong values.
 type updateRequest struct {
-	Name     string             `json:"name"`
-	Nodes    []diagrams.Node    `json:"nodes"`
-	Edges    []diagrams.Edge    `json:"edges"`
-	Viewport diagrams.Viewport  `json:"viewport"`
+	Name     string            `json:"name"`
+	Nodes    []diagrams.Node   `json:"nodes"`
+	Edges    []diagrams.Edge   `json:"edges"`
+	Viewport diagrams.Viewport `json:"viewport"`
 }
 
 func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var req updateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !h.decodeJSON(w, r, &req) {
 		return
 	}
 	d := &diagrams.Diagram{
@@ -115,13 +131,11 @@ func (h *apiHandlers) update(w http.ResponseWriter, r *http.Request) {
 // (component). Both fields are optional pointers so callers can send either.
 func (h *apiHandlers) rename(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	var body struct {
 		Name      *string `json:"name"`
 		Component *bool   `json:"component"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	var d *diagrams.Diagram
