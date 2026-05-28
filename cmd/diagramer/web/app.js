@@ -376,6 +376,7 @@ let edgeDrag = null; // { edgeId, snapshot }
 // Transient alignment guide lines drawn while dragging (model coords).
 let alignGuides = [];
 const SNAP_PX = 6; // snap threshold in screen pixels
+let nudgeHistoryTimer = null; // coalesces arrow-key nudge bursts into one undo
 let saveTimer = null;
 // Drill-down trail of ancestor diagrams when navigating into subdiagrams.
 // Session-only; entries are { id, name }. The current diagram is not included.
@@ -2319,6 +2320,27 @@ window.addEventListener("keydown", (evt) => {
   if (!mod && !evt.altKey && key === "f") {
     evt.preventDefault();
     fitView();
+    return;
+  }
+
+  // Arrow keys nudge the selected nodes (Shift = 10px steps). A burst of
+  // nudges collapses into a single undo step via a short debounce.
+  if (!mod && !evt.altKey && selectedIds.size > 0 &&
+      (evt.key === "ArrowUp" || evt.key === "ArrowDown" ||
+       evt.key === "ArrowLeft" || evt.key === "ArrowRight")) {
+    evt.preventDefault();
+    const step = evt.shiftKey ? 10 : 1;
+    const dx = evt.key === "ArrowLeft" ? -step : evt.key === "ArrowRight" ? step : 0;
+    const dy = evt.key === "ArrowUp" ? -step : evt.key === "ArrowDown" ? step : 0;
+    if (nudgeHistoryTimer === null) pushHistory();
+    clearTimeout(nudgeHistoryTimer);
+    nudgeHistoryTimer = setTimeout(() => { nudgeHistoryTimer = null; }, 600);
+    for (const id of selectedIds) {
+      const n = diagram.nodes.find((x) => x.id === id);
+      if (n) { n.position.x += dx; n.position.y += dy; }
+    }
+    save();
+    render();
     return;
   }
 
