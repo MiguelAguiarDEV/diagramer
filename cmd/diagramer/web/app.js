@@ -3008,6 +3008,7 @@ function singleNodeMenuItems(id) {
     { separator: true },
     sub,
     { separator: true },
+    { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete", action: () => deleteSelected() },
   ];
 }
@@ -3089,6 +3090,7 @@ function multiNodesMenuItems() {
     { separator: true },
     { label: "Color ▸", submenu: () => colorMenuItems(new Set(selectedIds)) },
     { separator: true },
+    { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete all", action: () => deleteSelected() },
   ];
 }
