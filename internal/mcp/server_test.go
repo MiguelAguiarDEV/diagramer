@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -380,5 +381,34 @@ func TestAutoLayoutToolEdges(t *testing.T) {
 	out := callTool[diagramOutput](t, cs, "auto_layout", map[string]any{"id": id})
 	if out.Diagram == nil || len(out.Diagram.Nodes) != 2 {
 		t.Fatalf("auto_layout on a cycle returned %+v", out.Diagram)
+	}
+}
+
+// If an AI client dispatches tool calls in parallel (common with parallel tool
+// use), concurrent add_node on the same diagram must not lose nodes. Each does
+// Get→append→Update; if that read-modify-write isn't serialized, writes clobber
+// each other.
+func TestConcurrentAddNodeNoLostUpdate(t *testing.T) {
+	cs := newTestSession(t)
+	ctx := context.Background()
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Parallel"}).Diagram.ID
+
+	const N = 30
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _ = cs.CallTool(ctx, &mcpsdk.CallToolParams{
+				Name:      "add_node",
+				Arguments: map[string]any{"diagram_id": id, "label": fmt.Sprintf("n%d", i)},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if len(g.Diagram.Nodes) != N {
+		t.Errorf("lost-update: expected %d nodes after concurrent add_node, got %d", N, len(g.Diagram.Nodes))
 	}
 }

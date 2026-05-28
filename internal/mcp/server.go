@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,6 +17,12 @@ type Server struct {
 	srv    *mcpsdk.Server
 	svc    diagrams.Service
 	logger *slog.Logger
+	// writeMu serializes tool handlers that do a read-modify-write across two
+	// service calls (Get then Update). The service's own lock only makes each
+	// call atomic, not the pair — so without this, parallel tool calls (an AI
+	// client emitting concurrent tool_use blocks) race on the same diagram and
+	// silently drop each other's changes (e.g. concurrent add_node loses nodes).
+	writeMu sync.Mutex
 }
 
 // New builds an MCP server backed by svc and registers all tools.
@@ -242,6 +249,8 @@ func (s *Server) deleteDiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, i
 }
 
 func (s *Server) addNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in addNodeInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, idOutput{}, err
@@ -275,6 +284,8 @@ func (s *Server) autoLayout(ctx context.Context, _ *mcpsdk.CallToolRequest, in i
 }
 
 func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in updateNodeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
@@ -320,6 +331,8 @@ func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 }
 
 func (s *Server) deleteNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in deleteNodeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
@@ -345,6 +358,8 @@ func (s *Server) deleteNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in d
 }
 
 func (s *Server) createSubdiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, in createSubdiagramInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	parent, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, idOutput{}, err
@@ -379,6 +394,8 @@ func (s *Server) createSubdiagram(ctx context.Context, _ *mcpsdk.CallToolRequest
 }
 
 func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addEdgeInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, idOutput{}, err
@@ -399,6 +416,8 @@ func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addE
 }
 
 func (s *Server) updateEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in updateEdgeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
@@ -423,6 +442,8 @@ func (s *Server) updateEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 }
 
 func (s *Server) deleteEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in deleteEdgeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
