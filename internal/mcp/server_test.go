@@ -83,7 +83,7 @@ func TestToolsAreRegistered(t *testing.T) {
 		"list_diagrams", "get_diagram", "create_diagram", "rename_diagram",
 		"delete_diagram", "add_node", "update_node", "delete_node",
 		"add_edge", "update_edge", "delete_edge", "create_subdiagram",
-		"auto_layout", "set_edge_style",
+		"auto_layout", "set_edge_style", "add_graph",
 	}
 	for _, w := range want {
 		if !got[w] {
@@ -438,5 +438,75 @@ func TestSetEdgeStyleTool(t *testing.T) {
 	})
 	if err == nil && !res.IsError {
 		t.Error("invalid style should error")
+	}
+}
+
+func TestAddGraphBuildsInOneCall(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Graph"}).Diagram.ID
+
+	out := callTool[struct {
+		Keys      map[string]string `json:"keys"`
+		NodeCount int               `json:"nodeCount"`
+		EdgeCount int               `json:"edgeCount"`
+	}](t, cs, "add_graph", map[string]any{
+		"diagram_id": id,
+		"nodes": []map[string]any{
+			{"key": "web", "kind": "frontend", "label": "Web"},
+			{"key": "api", "kind": "backend", "label": "API"},
+			{"key": "db", "kind": "database", "label": "DB"},
+		},
+		"edges": []map[string]any{
+			{"source": "web", "target": "api", "label": "http"},
+			{"source": "api", "target": "db", "label": "sql"},
+		},
+	})
+	if out.NodeCount != 3 || out.EdgeCount != 2 {
+		t.Fatalf("counts: %d nodes / %d edges", out.NodeCount, out.EdgeCount)
+	}
+	if len(out.Keys) != 3 || out.Keys["web"] == "" || out.Keys["db"] == "" {
+		t.Fatalf("keys not mapped: %+v", out.Keys)
+	}
+
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if len(g.Diagram.Nodes) != 3 || len(g.Diagram.Edges) != 2 {
+		t.Fatalf("persisted %d nodes / %d edges", len(g.Diagram.Nodes), len(g.Diagram.Edges))
+	}
+	// Edges were remapped from keys to the created ids.
+	want := map[string]bool{out.Keys["web"] + "->" + out.Keys["api"]: true, out.Keys["api"] + "->" + out.Keys["db"]: true}
+	for _, e := range g.Diagram.Edges {
+		if !want[e.Source+"->"+e.Target] {
+			t.Errorf("unexpected edge %s -> %s", e.Source, e.Target)
+		}
+	}
+
+	// An edge can also reference an existing node id (not just a key).
+	out2 := callTool[struct {
+		Keys      map[string]string `json:"keys"`
+		EdgeCount int               `json:"edgeCount"`
+	}](t, cs, "add_graph", map[string]any{
+		"diagram_id": id,
+		"nodes":      []map[string]any{{"key": "cache", "kind": "cache", "label": "Cache"}},
+		"edges":      []map[string]any{{"source": "cache", "target": out.Keys["db"]}},
+	})
+	if out2.EdgeCount != 1 {
+		t.Fatalf("mixed key/id edge count: %d", out2.EdgeCount)
+	}
+	g = callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if len(g.Diagram.Nodes) != 4 || len(g.Diagram.Edges) != 3 {
+		t.Fatalf("after second add_graph: %d nodes / %d edges", len(g.Diagram.Nodes), len(g.Diagram.Edges))
+	}
+
+	// A dangling reference (unknown key/id) must fail the whole call.
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "add_graph",
+		Arguments: map[string]any{
+			"diagram_id": id,
+			"nodes":      []map[string]any{{"key": "x", "label": "X"}},
+			"edges":      []map[string]any{{"source": "x", "target": "ghost"}},
+		},
+	})
+	if err == nil && !res.IsError {
+		t.Error("add_graph with a dangling edge ref should error")
 	}
 }

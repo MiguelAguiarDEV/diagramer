@@ -140,6 +140,39 @@ type deleteEdgeInput struct {
 	EdgeID    string `json:"edge_id" jsonschema:"edge ID"`
 }
 
+// ---------- batch graph build ----------
+
+type graphNodeInput struct {
+	Key    string   `json:"key" jsonschema:"a caller-chosen handle (e.g. 'web', 'db') used to reference this node from edges in the same call. Must be unique within the call."`
+	Kind   string   `json:"kind,omitempty" jsonschema:"shape kind: rect, circle, ellipse, rhombus, tri-up, tri-down, database, backend, frontend, queue, cache, user, cloud. Empty = rect."`
+	Label  string   `json:"label,omitempty" jsonschema:"label text (optional)"`
+	X      *float64 `json:"x,omitempty" jsonschema:"x position (optional; auto-placed when omitted — call auto_layout afterwards for a tidy result)"`
+	Y      *float64 `json:"y,omitempty" jsonschema:"y position (optional; auto-placed when omitted)"`
+	Fill   string   `json:"fill,omitempty" jsonschema:"fill color as a CSS hex (optional)"`
+	Stroke string   `json:"stroke,omitempty" jsonschema:"border color as a CSS hex (optional)"`
+	Port   string   `json:"port,omitempty" jsonschema:"interface role: 'in', 'out', or 'dep' (optional)"`
+}
+
+type graphEdgeInput struct {
+	Source     string `json:"source" jsonschema:"the key of a node defined in this call, or the id of an existing node"`
+	Target     string `json:"target" jsonschema:"the key of a node defined in this call, or the id of an existing node"`
+	Label      string `json:"label,omitempty" jsonschema:"edge label (optional)"`
+	SourcePort string `json:"source_port,omitempty" jsonschema:"bind the source end to an interface port id (optional)"`
+	TargetPort string `json:"target_port,omitempty" jsonschema:"bind the target end to an interface port id (optional)"`
+}
+
+type addGraphInput struct {
+	DiagramID string           `json:"diagram_id" jsonschema:"diagram ID"`
+	Nodes     []graphNodeInput `json:"nodes" jsonschema:"nodes to add, each with a unique 'key'"`
+	Edges     []graphEdgeInput `json:"edges,omitempty" jsonschema:"edges to add, referencing nodes by 'key' (new) or id (existing)"`
+}
+
+type addGraphOutput struct {
+	Keys      map[string]string `json:"keys"` // node key → created node id
+	NodeCount int               `json:"nodeCount"`
+	EdgeCount int               `json:"edgeCount"`
+}
+
 // ---------- tool registration ----------
 
 func (s *Server) registerTools() {
@@ -202,6 +235,11 @@ func (s *Server) registerTools() {
 		Name:        "add_edge",
 		Description: "Connect two nodes with a directed edge. Returns the new edge's ID.",
 	}, s.addEdge)
+
+	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
+		Name:        "add_graph",
+		Description: "Build a whole subgraph in one call: add many nodes and edges at once. Each node carries a caller-chosen 'key'; edges reference nodes by that key (or by an existing node id). The efficient way to construct a diagram — follow with auto_layout for a tidy result. Returns the key→id map and counts.",
+	}, s.addGraph)
 
 	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
 		Name:        "update_edge",
@@ -431,6 +469,57 @@ func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addE
 		return nil, idOutput{}, err
 	}
 	return nil, idOutput{ID: edge.ID}, nil
+}
+
+func (s *Server) addGraph(ctx context.Context, _ *mcpsdk.CallToolRequest, in addGraphInput) (*mcpsdk.CallToolResult, addGraphOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	d, err := s.svc.Get(ctx, in.DiagramID)
+	if err != nil {
+		return nil, addGraphOutput{}, err
+	}
+	keys := make(map[string]string, len(in.Nodes))
+	for _, n := range in.Nodes {
+		pos := diagrams.AutoPlace(d) // sequential auto-place when coords omitted
+		if n.X != nil {
+			pos.X = *n.X
+		}
+		if n.Y != nil {
+			pos.Y = *n.Y
+		}
+		node := diagrams.Node{
+			ID:       uuid.NewString(),
+			Kind:     n.Kind,
+			Position: pos,
+			Data:     diagrams.NodeData{Label: n.Label, Fill: n.Fill, Stroke: n.Stroke, Port: n.Port},
+		}
+		if n.Key != "" {
+			keys[n.Key] = node.ID
+		}
+		d.Nodes = append(d.Nodes, node)
+	}
+	// Resolve an endpoint: a key from this call wins, else treat it as an
+	// existing node id (Update will reject it if it doesn't exist).
+	resolve := func(ref string) string {
+		if id, ok := keys[ref]; ok {
+			return id
+		}
+		return ref
+	}
+	for _, e := range in.Edges {
+		d.Edges = append(d.Edges, diagrams.Edge{
+			ID:         uuid.NewString(),
+			Source:     resolve(e.Source),
+			Target:     resolve(e.Target),
+			SourcePort: e.SourcePort,
+			TargetPort: e.TargetPort,
+			Label:      e.Label,
+		})
+	}
+	if _, err := s.svc.Update(ctx, d, ""); err != nil {
+		return nil, addGraphOutput{}, err
+	}
+	return nil, addGraphOutput{Keys: keys, NodeCount: len(in.Nodes), EdgeCount: len(in.Edges)}, nil
 }
 
 func (s *Server) updateEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in updateEdgeInput) (*mcpsdk.CallToolResult, okOutput, error) {
