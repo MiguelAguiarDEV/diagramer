@@ -62,6 +62,7 @@ positional args:
 
 ```sh
 ./diagramer create -data ./data "My Diagram"   # prints the new id
+./diagramer import -data ./data in.json        # create from a JSON file
 ./diagramer list   -data ./data                # id, name, counts, kind
 ./diagramer get    -data ./data <id>           # full diagram as JSON
 ./diagramer layout -data ./data <id>           # auto-layout (tidy)

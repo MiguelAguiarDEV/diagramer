@@ -64,6 +64,34 @@ func TestCLILifecycle(t *testing.T) {
 		t.Fatalf("export file bad: err=%v", err)
 	}
 
+	// import round-trip: a JSON file (with one dangling edge) → new diagram,
+	// dangling edge dropped, the valid one kept.
+	src := filepath.Join(dir, "in.json")
+	os.WriteFile(src, []byte(`{
+		"name": "Imported One",
+		"nodes": [{"id":"a","position":{"x":0,"y":0},"data":{"label":"A"}},
+		          {"id":"b","position":{"x":200,"y":0},"data":{"label":"B"}}],
+		"edges": [{"id":"e1","source":"a","target":"b"},
+		          {"id":"bad","source":"a","target":"ghost"}],
+		"viewport": {"x":0,"y":0,"zoom":1}
+	}`), 0o644)
+	out, err = run("import", src)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	impID := strings.TrimSpace(out)
+	out, _ = run("get", impID)
+	var imp struct {
+		Name  string `json:"name"`
+		Nodes []any  `json:"nodes"`
+		Edges []any  `json:"edges"`
+	}
+	json.Unmarshal([]byte(out), &imp)
+	if imp.Name != "Imported One" || len(imp.Nodes) != 2 || len(imp.Edges) != 1 {
+		t.Fatalf("import result: name=%q %d nodes / %d edges (dangling not pruned?)",
+			imp.Name, len(imp.Nodes), len(imp.Edges))
+	}
+
 	// delete → gone from list
 	if _, err := run("delete", id); err != nil {
 		t.Fatalf("delete: %v", err)

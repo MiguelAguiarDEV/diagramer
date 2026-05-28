@@ -18,6 +18,7 @@ var cliCommands = map[string]string{
 	"list":   "list diagrams (id, name, counts)",
 	"get":    "print a diagram as JSON: get <id>",
 	"create": "create a diagram, print its id: create <name>",
+	"import": "create a diagram from a JSON file, print its id: import <path>",
 	"delete": "delete a diagram: delete <id>",
 	"layout": "auto-layout (tidy) a diagram: layout <id>",
 	"export": "write a diagram's JSON to a file or stdout: export <id> [path]",
@@ -85,6 +86,39 @@ func runCLI(out io.Writer, cmd string, args []string) error {
 		fmt.Fprintln(out, d.ID)
 		return nil
 
+	case "import":
+		path, err := arg(0, "path")
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var in diagrams.Diagram
+		if err := json.Unmarshal(b, &in); err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+		name := in.Name
+		if name == "" {
+			name = "Imported"
+		}
+		d, err := svc.Create(ctx, name, in.Component)
+		if err != nil {
+			return err
+		}
+		d.Nodes = in.Nodes
+		d.Edges = pruneDangling(in.Nodes, in.Edges) // drop edges to missing nodes
+		d.EdgeStyle = in.EdgeStyle
+		if in.Viewport.Zoom != 0 {
+			d.Viewport = in.Viewport
+		}
+		if _, err := svc.Update(ctx, d, ""); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, d.ID)
+		return nil
+
 	case "delete":
 		id, err := arg(0, "id")
 		if err != nil {
@@ -132,6 +166,24 @@ func runCLI(out io.Writer, cmd string, args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown command %q", cmd)
+}
+
+// pruneDangling drops edges whose endpoints aren't among the given nodes, so an
+// imported file with a stray edge doesn't get rejected by validation.
+func pruneDangling(nodes []diagrams.Node, edges []diagrams.Edge) []diagrams.Edge {
+	ids := make(map[string]struct{}, len(nodes))
+	for i := range nodes {
+		ids[nodes[i].ID] = struct{}{}
+	}
+	kept := make([]diagrams.Edge, 0, len(edges))
+	for _, e := range edges {
+		_, okS := ids[e.Source]
+		_, okT := ids[e.Target]
+		if okS && okT {
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }
 
 func writeJSONIndent(out io.Writer, v any) error {
