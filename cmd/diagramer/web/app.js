@@ -2135,17 +2135,18 @@ canvas.addEventListener("mousedown", (evt) => {
   // Precompute alignment candidate lines from the static (non-moving) nodes
   // once: they don't move during the drag, so rebuilding them (and remeasuring
   // every node) on each mousemove would be wasted work on large diagrams.
-  const vCand = [], hCand = [];
+  const vCand = [], hCand = [], staticBoxes = [];
   for (const n of diagram.nodes) {
     if (offsets.has(n.id)) continue;
     const { w, h } = nodeSize(n);
     const l = n.position.x, r = l + w, t = n.position.y, b = t + h;
     for (const x of [l, l + w / 2, r]) vCand.push({ c: x, lo: t, hi: b });
     for (const y of [t, t + h / 2, b]) hCand.push({ c: y, lo: l, hi: r });
+    staticBoxes.push({ l, r, t, b });
   }
   // Capture pre-drag snapshot for undo; only commit it to history if the
   // pointer actually moves (a stray click shouldn't pollute the history).
-  dragging = { offsets, moved: false, snapshot: snapshot(), vCand, hCand };
+  dragging = { offsets, moved: false, snapshot: snapshot(), vCand, hCand, staticBoxes };
   render();
 });
 
@@ -2188,8 +2189,24 @@ function snapDraggingToGuides() {
     }
   }
 
-  const dx = bestV ? bestV.delta : 0;
-  const dy = bestH ? bestH.delta : 0;
+  let dx = bestV ? bestV.delta : 0;
+  let dy = bestH ? bestH.delta : 0;
+
+  // Equidistant-spacing snap (single-node drag only): center the node in the
+  // gap between the two nearest static nodes sharing its row/column, on any
+  // axis alignment didn't already claim. Figma's "smart distribute".
+  let spacingGuides = [];
+  if (moving.length === 1) {
+    if (!bestV) {
+      const s = spacingSnap(mMinX, mMaxX, mMinY + dy, mMaxY + dy, "x", thr);
+      if (s) { dx = s.delta; spacingGuides = spacingGuides.concat(s.guides); }
+    }
+    if (!bestH) {
+      const s = spacingSnap(mMinY, mMaxY, mMinX + dx, mMaxX + dx, "y", thr);
+      if (s) { dy = s.delta; spacingGuides = spacingGuides.concat(s.guides); }
+    }
+  }
+
   if (dx || dy) for (const n of moving) { n.position.x += dx; n.position.y += dy; }
 
   if (bestV) {
@@ -2198,13 +2215,44 @@ function snapDraggingToGuides() {
   if (bestH) {
     alignGuides.push({ x1: Math.min(mMinX + dx, bestH.lo), y1: bestH.c, x2: Math.max(mMaxX + dx, bestH.hi), y2: bestH.c });
   }
+  for (const g of spacingGuides) alignGuides.push(g);
+}
+
+// Finds the equidistant ("centered between two") snap for a single dragged node
+// along `axis`. minA/maxA = the node's span on that axis (pre-snap); perpLo/
+// perpHi = its extent on the other axis, so only static nodes sharing the
+// row/column count. Returns { delta, guides } or null.
+function spacingSnap(minA, maxA, perpLo, perpHi, axis, thr) {
+  const size = maxA - minA;
+  let A = null, C = null; // nearest in-band static on the low / high side
+  for (const bx of dragging.staticBoxes) {
+    const lo = axis === "x" ? bx.l : bx.t;
+    const hi = axis === "x" ? bx.r : bx.b;
+    const pLo = axis === "x" ? bx.t : bx.l;
+    const pHi = axis === "x" ? bx.b : bx.r;
+    if (pHi <= perpLo || pLo >= perpHi) continue; // not in the same band
+    if (hi <= minA && (!A || hi > A.hi)) A = { lo, hi };
+    if (lo >= maxA && (!C || lo < C.lo)) C = { lo, hi };
+  }
+  if (!A || !C) return null;
+  const free = C.lo - A.hi;
+  if (free < size) return null; // no room to center between them
+  const targetMin = A.hi + (free - size) / 2;
+  const delta = targetMin - minA;
+  if (Math.abs(delta) > thr) return null;
+  const mid = (perpLo + perpHi) / 2;
+  const seg = (s, e) => axis === "x"
+    ? { spacing: true, x1: s, y1: mid, x2: e, y2: mid }
+    : { spacing: true, x1: mid, y1: s, x2: mid, y2: e };
+  return { delta, guides: [seg(A.hi, targetMin), seg(targetMin + size, C.lo)] };
 }
 
 function drawAlignGuides() {
   guidesLayer.innerHTML = "";
   for (const g of alignGuides) {
     guidesLayer.appendChild(svg("line", {
-      class: "align-guide", x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2,
+      class: g.spacing ? "align-guide spacing-guide" : "align-guide",
+      x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2,
     }));
   }
 }

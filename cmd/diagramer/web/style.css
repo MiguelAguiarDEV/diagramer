@@ -688,3 +688,12 @@ main {
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
+
+/* Equidistant-spacing indicators (the two equal gaps), distinct from the
+   alignment guides: solid and a touch heavier. */
+.spacing-guide {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+  stroke-width: 2;
+  opacity: 0.85;
+}
