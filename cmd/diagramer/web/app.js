@@ -1023,10 +1023,10 @@ function edgeMidpoint(pa, pb) {
 // World position of the draggable curvature handle for the given edge.
 // Without curvature it lives on the straight anchor midpoint; with curvature
 // it's offset by (ox, oy).
-function edgeHandlePos(edge, pa, pb) {
+function edgeHandlePos(edge, pa, pb, curv = edge.curvature) {
   const mid = edgeMidpoint(pa, pb);
-  if (edge.curvature) {
-    return { x: mid.x + edge.curvature.ox, y: mid.y + edge.curvature.oy };
+  if (curv) {
+    return { x: mid.x + curv.ox, y: mid.y + curv.oy };
   }
   return mid;
 }
@@ -1035,11 +1035,11 @@ function edgeHandlePos(edge, pa, pb) {
 // single control point chosen so the curve passes exactly through the handle
 // at t=0.5. Without curvature: the original cubic with control points pushed
 // perpendicular to each anchor's side (the look we had before A* routing).
-function edgePath(edge, pa, pb) {
-  if (edge.curvature) {
+function edgePath(edge, pa, pb, curv = edge.curvature) {
+  if (curv) {
     const mid = edgeMidpoint(pa, pb);
-    const hx = mid.x + edge.curvature.ox;
-    const hy = mid.y + edge.curvature.oy;
+    const hx = mid.x + curv.ox;
+    const hy = mid.y + curv.oy;
     // Quadratic B(t) = (1-t)²·P0 + 2(1-t)t·C + t²·P2. At t=0.5:
     //   B(0.5) = (P0 + 2C + P2) / 4 = H   →   C = 2H − (P0+P2)/2
     const cx = 2 * hx - (pa.x + pb.x) / 2;
@@ -1054,12 +1054,36 @@ function render() {
   nodesLayer.innerHTML = "";
   edgeLabelsLayer.innerHTML = "";
 
+  // Fan out edges that share a node pair so their paths and labels don't stack
+  // on the same straight line. Edges the user has bent (explicit curvature) keep
+  // their own shape and are excluded from the auto-spread.
+  const parIdx = new Map(), parN = new Map();
+  {
+    const groups = new Map();
+    for (const e of diagram.edges) {
+      if (e.curvature) continue;
+      const key = [e.source, e.target].sort().join("|");
+      (groups.get(key) || groups.set(key, []).get(key)).push(e.id);
+    }
+    for (const ids of groups.values())
+      ids.forEach((id, i) => { parIdx.set(id, i); parN.set(id, ids.length); });
+  }
+
   for (const e of diagram.edges) {
     const a = diagram.nodes.find((n) => n.id === e.source);
     const b = diagram.nodes.find((n) => n.id === e.target);
     if (!a || !b) continue;
     const { pa, pb } = anchorsFor(e, a, b);
-    const d = edgePath(e, pa, pb);
+    let curv = e.curvature;
+    const n = parN.get(e.id) || 1;
+    if (!curv && n > 1) {
+      const i = parIdx.get(e.id);
+      const dx = pb.x - pa.x, dy = pb.y - pa.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const off = (i - (n - 1) / 2) * 36;
+      curv = { ox: (-dy / len) * off, oy: (dx / len) * off };
+    }
+    const d = edgePath(e, pa, pb, curv);
     const isSel = e.id === selectedEdgeId;
     const eg = svg("g", {
       class: "edge-group" + (isSel ? " selected" : ""),
@@ -1076,7 +1100,7 @@ function render() {
     }
     eg.appendChild(svg("path", edgeAttrs));
     if (isSel) {
-      const h = edgeHandlePos(e, pa, pb);
+      const h = edgeHandlePos(e, pa, pb, curv);
       eg.appendChild(svg("circle", {
         class: "edge-handle",
         "data-id": e.id,
@@ -1088,7 +1112,7 @@ function render() {
     // Labels live in a layer above the nodes so a label that overlaps a node
     // (long text, tight gap) stays readable instead of being painted under it.
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
-      const h = edgeHandlePos(e, pa, pb);
+      const h = edgeHandlePos(e, pa, pb, curv);
       const midX = h.x;
       const midY = h.y;
       const tw = _measureCtx.measureText(e.label).width + 10;
