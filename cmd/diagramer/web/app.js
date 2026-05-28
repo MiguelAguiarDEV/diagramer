@@ -334,6 +334,7 @@ const viewportLayer = document.getElementById("viewport");
 const edgesLayer = document.getElementById("edges");
 const nodesLayer = document.getElementById("nodes");
 const edgeLabelsLayer = document.getElementById("edge-labels");
+const guidesLayer = document.getElementById("guides");
 const addBtn = document.getElementById("add-box");
 const connectBtn = document.getElementById("connect-mode");
 const deleteBtn = document.getElementById("delete");
@@ -368,6 +369,9 @@ let pendingEdge = null;
 let lasso = null;
 let editing = null; // { kind: "node" | "edge", id }
 let edgeDrag = null; // { edgeId, snapshot }
+// Transient alignment guide lines drawn while dragging (model coords).
+let alignGuides = [];
+const SNAP_PX = 6; // snap threshold in screen pixels
 let saveTimer = null;
 // Drill-down trail of ancestor diagrams when navigating into subdiagrams.
 // Session-only; entries are { id, name }. The current diagram is not included.
@@ -1254,6 +1258,7 @@ function render() {
   applyViewport();
   syncPendingEdge();
   syncLasso();
+  drawAlignGuides();
   renderMinimap();
 }
 
@@ -1974,6 +1979,74 @@ canvas.addEventListener("mousedown", (evt) => {
   render();
 });
 
+// While dragging, snap the moving selection into alignment with static nodes
+// (left/center/right, top/center/bottom), Figma-style. Mutates the moving
+// nodes' positions by a small delta and records guide lines for render().
+function snapDraggingToGuides() {
+  alignGuides = [];
+  if (!dragging) return;
+  const movingIds = new Set(dragging.offsets.keys());
+  const moving = diagram.nodes.filter((n) => movingIds.has(n.id));
+  if (moving.length === 0) return;
+
+  let mMinX = Infinity, mMinY = Infinity, mMaxX = -Infinity, mMaxY = -Infinity;
+  for (const n of moving) {
+    const { w, h } = nodeSize(n);
+    mMinX = Math.min(mMinX, n.position.x);
+    mMinY = Math.min(mMinY, n.position.y);
+    mMaxX = Math.max(mMaxX, n.position.x + w);
+    mMaxY = Math.max(mMaxY, n.position.y + h);
+  }
+  const mCx = (mMinX + mMaxX) / 2, mCy = (mMinY + mMaxY) / 2;
+  const thr = SNAP_PX / (diagram.viewport.zoom || 1);
+
+  // Candidate alignment lines from every static node: vertical lines carry the
+  // node's y-extent (for drawing), horizontal lines carry its x-extent.
+  const vCand = [], hCand = [];
+  for (const n of diagram.nodes) {
+    if (movingIds.has(n.id)) continue;
+    const { w, h } = nodeSize(n);
+    const l = n.position.x, r = l + w, t = n.position.y, b = t + h;
+    for (const x of [l, l + w / 2, r]) vCand.push({ c: x, lo: t, hi: b });
+    for (const y of [t, t + h / 2, b]) hCand.push({ c: y, lo: l, hi: r });
+  }
+
+  let bestV = null;
+  for (const mx of [mMinX, mCx, mMaxX]) {
+    for (const cand of vCand) {
+      const d = Math.abs(mx - cand.c);
+      if (d <= thr && (!bestV || d < bestV.d)) bestV = { d, delta: cand.c - mx, ...cand };
+    }
+  }
+  let bestH = null;
+  for (const my of [mMinY, mCy, mMaxY]) {
+    for (const cand of hCand) {
+      const d = Math.abs(my - cand.c);
+      if (d <= thr && (!bestH || d < bestH.d)) bestH = { d, delta: cand.c - my, ...cand };
+    }
+  }
+
+  const dx = bestV ? bestV.delta : 0;
+  const dy = bestH ? bestH.delta : 0;
+  if (dx || dy) for (const n of moving) { n.position.x += dx; n.position.y += dy; }
+
+  if (bestV) {
+    alignGuides.push({ x1: bestV.c, y1: Math.min(mMinY + dy, bestV.lo), x2: bestV.c, y2: Math.max(mMaxY + dy, bestV.hi) });
+  }
+  if (bestH) {
+    alignGuides.push({ x1: Math.min(mMinX + dx, bestH.lo), y1: bestH.c, x2: Math.max(mMaxX + dx, bestH.hi), y2: bestH.c });
+  }
+}
+
+function drawAlignGuides() {
+  guidesLayer.innerHTML = "";
+  for (const g of alignGuides) {
+    guidesLayer.appendChild(svg("line", {
+      class: "align-guide", x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2,
+    }));
+  }
+}
+
 window.addEventListener("mousemove", (evt) => {
   if (panning) {
     diagram.viewport.x = panning.vx + (evt.clientX - panning.sx);
@@ -2013,6 +2086,7 @@ window.addEventListener("mousemove", (evt) => {
     node.position.x = p.x - off.dx;
     node.position.y = p.y - off.dy;
   }
+  snapDraggingToGuides();
   dragging.moved = true;
   render();
 });
@@ -2088,6 +2162,10 @@ window.addEventListener("mouseup", (evt) => {
     save();
   }
   dragging = null;
+  if (alignGuides.length) {
+    alignGuides = [];
+    render();
+  }
 });
 
 canvas.addEventListener("wheel", (evt) => {
