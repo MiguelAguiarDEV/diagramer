@@ -326,3 +326,50 @@ func TestConcurrentIfMatchSingleWinnerFileRepo(t *testing.T) {
 		t.Errorf("expected exactly 1 winner, got %d (lost-update race via TOCTOU)", wins)
 	}
 }
+
+// Fuzz-ish: no malformed/hostile PUT body should ever 500 or crash the server;
+// only client-error or success codes are acceptable.
+func TestUpdateMalformedBodiesNeverErrorServer(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	resp, _ := http.Post(srv.URL+"/api/diagrams", "application/json", bytes.NewBufferString(`{"name":"f"}`))
+	var d diagrams.Diagram
+	json.NewDecoder(resp.Body).Decode(&d)
+	url := srv.URL + "/api/diagrams/" + d.ID
+
+	bodies := []string{
+		``,                       // empty
+		`null`,                   // null
+		`[]`,                     // wrong top-level type
+		`{`,                      // truncated
+		`{"nodes":"notarray"}`,   // wrong field type
+		`{"nodes":[{"id":123}]}`, // wrong node id type
+		`{"nodes":[{}]}`,         // node missing everything
+		`{"nodes":[{"id":"","position":{"x":"NaN"}}]}`,         // bad position type
+		`{"edges":[{"id":"e","source":"ghost","target":"x"}]}`, // dangling refs
+		`{"viewport":{"zoom":"big"}}`,                          // wrong viewport type
+		`{"name":` + `"` + strings.Repeat("ñ", 300) + `"}`,     // overlong unicode name
+		`{"nodes":[` + strings.Repeat(`{"id":"x","position":{"x":0,"y":0},"data":{"label":"a"}},`, 3) + `{"id":"x","position":{"x":0,"y":0},"data":{"label":"a"}}]}`, // duplicate ids
+		strings.Repeat(`{"a":`, 2000) + `1` + strings.Repeat(`}`, 2000),                                                                                              // deeply nested
+	}
+	allowed := map[int]bool{200: true, 400: true, 404: true, 412: true, 413: true}
+	for i, b := range bodies {
+		req, _ := http.NewRequest("PUT", url, strings.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Errorf("case %d: request error %v", i, err)
+			continue
+		}
+		if !allowed[r.StatusCode] {
+			t.Errorf("case %d (%.40q): unexpected status %d", i, b, r.StatusCode)
+		}
+		r.Body.Close()
+	}
+
+	// Server must still be alive and serving after the barrage.
+	hr, err := http.Get(srv.URL + "/api/health")
+	if err != nil || hr.StatusCode != 200 {
+		t.Fatalf("server unhealthy after fuzz: err=%v", err)
+	}
+}
