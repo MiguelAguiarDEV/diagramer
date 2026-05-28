@@ -510,19 +510,30 @@ async function init() {
   let list = await api("GET", "/api/diagrams");
   if (!list) list = [];
 
-  let toLoad = null;
-  if (targetId && list.some((d) => d.id === targetId)) {
-    toLoad = targetId;
-  } else if (list.length > 0) {
-    toLoad = list[0].id;
-  } else {
-    const created = await api("POST", "/api/diagrams", { name: "Untitled" });
-    list = [created];
-    toLoad = created.id;
+  // Candidate ids in priority order: the URL target first, then the rest.
+  const ids = [];
+  if (targetId && list.some((d) => d.id === targetId)) ids.push(targetId);
+  for (const m of list) if (!ids.includes(m.id)) ids.push(m.id);
+
+  renderSidebar(list, ids[0] || null);
+
+  // Try candidates in order; skip any that won't load (a stale index entry
+  // whose file was deleted, or a corrupt file) so one bad diagram can't brick
+  // the whole app on boot.
+  for (const id of ids) {
+    try {
+      await loadDiagram(id, { push: targetId !== id });
+      return;
+    } catch (e) {
+      console.error("skipping unloadable diagram", id, e);
+    }
   }
 
-  renderSidebar(list, toLoad);
-  await loadDiagram(toLoad, { push: targetId !== toLoad });
+  // Empty dir, or every entry was unloadable → start fresh.
+  const created = await api("POST", "/api/diagrams", { name: "Untitled" });
+  list = [created, ...list.filter((m) => m.id !== created.id)];
+  renderSidebar(list, created.id);
+  await loadDiagram(created.id, { push: false });
 }
 
 async function refreshSidebar() {
