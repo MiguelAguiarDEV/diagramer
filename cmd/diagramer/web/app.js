@@ -2430,21 +2430,27 @@ function tidyUp() {
   const byId = new Map(diagram.nodes.map((n) => [n.id, n]));
   const inAdj = new Map();
   const outAdj = new Map();
+  const deg = new Map();
   for (const n of diagram.nodes) {
     inAdj.set(n.id, []);
     outAdj.set(n.id, []);
+    deg.set(n.id, 0);
   }
   for (const e of diagram.edges) {
     if (byId.has(e.source) && byId.has(e.target)) {
       outAdj.get(e.source).push(e.target);
       inAdj.get(e.target).push(e.source);
+      deg.set(e.source, deg.get(e.source) + 1);
+      deg.set(e.target, deg.get(e.target) + 1);
     }
   }
 
+  // Longest-path levels over connected nodes; orphans (no edges) are excluded
+  // and parked in a row below so they don't crowd column 0.
   const level = new Map();
   const queue = [];
   for (const n of diagram.nodes) {
-    if (inAdj.get(n.id).length === 0) {
+    if (deg.get(n.id) > 0 && inAdj.get(n.id).length === 0) {
       level.set(n.id, 0);
       queue.push(n.id);
     }
@@ -2459,23 +2465,76 @@ function tidyUp() {
       }
     }
   }
-  // Anything left (pure cycles) → level 0.
+  // Connected nodes left unleveled (pure cycles) → level 0.
   for (const n of diagram.nodes) {
-    if (!level.has(n.id)) level.set(n.id, 0);
+    if (deg.get(n.id) > 0 && !level.has(n.id)) level.set(n.id, 0);
   }
 
   const cols = new Map();
+  const orphans = [];
+  let maxLevel = 0;
   for (const n of diagram.nodes) {
+    if (deg.get(n.id) === 0) {
+      orphans.push(n);
+      continue;
+    }
     const lvl = level.get(n.id);
     if (!cols.has(lvl)) cols.set(lvl, []);
     cols.get(lvl).push(n);
+    if (lvl > maxLevel) maxLevel = lvl;
+  }
+
+  // Crossing reduction: alternate median sweeps reorder each column by the
+  // median rank of its neighbors in the adjacent column (Sugiyama-style).
+  const posInCol = new Map();
+  for (let lvl = 0; lvl <= maxLevel; lvl++) {
+    const col = cols.get(lvl) || [];
+    col.forEach((n, p) => posInCol.set(n.id, p));
+  }
+  const median = (neigh) => {
+    const ps = neigh.map((id) => posInCol.get(id)).filter((p) => p !== undefined);
+    if (ps.length === 0) return -1;
+    ps.sort((a, b) => a - b);
+    const m = ps.length;
+    return m % 2 ? ps[(m - 1) / 2] : (ps[m / 2 - 1] + ps[m / 2]) / 2;
+  };
+  const reorder = (lvl, useIn) => {
+    const col = cols.get(lvl);
+    if (!col) return;
+    const key = new Map();
+    for (const n of col) {
+      let med = median(useIn ? inAdj.get(n.id) : outAdj.get(n.id));
+      if (med < 0) med = posInCol.get(n.id); // no neighbors → keep spot
+      key.set(n.id, med);
+    }
+    col.sort((a, b) => key.get(a.id) - key.get(b.id));
+    col.forEach((n, p) => posInCol.set(n.id, p));
+  };
+  for (let s = 0; s < 4; s++) {
+    if (s % 2 === 0) {
+      for (let lvl = 1; lvl <= maxLevel; lvl++) reorder(lvl, true);
+    } else {
+      for (let lvl = maxLevel - 1; lvl >= 0; lvl--) reorder(lvl, false);
+    }
+  }
+
+  // Label-aware spacing: a forward edge's label sits between its columns, so
+  // widen that gap to fit the widest label crossing it.
+  const labelGap = new Map();
+  for (const e of diagram.edges) {
+    const ls = level.get(e.source);
+    const lt = level.get(e.target);
+    if (ls !== undefined && lt === ls + 1 && e.label) {
+      const w = _measureCtx.measureText(e.label).width + 24;
+      if (w > (labelGap.get(ls) || 0)) labelGap.set(ls, w);
+    }
   }
 
   pushHistory();
   const GAP_X = 80;
   const GAP_Y = 30;
   let cursorX = 0;
-  const maxLevel = Math.max(...cols.keys());
+  let maxBottom = -Infinity;
   for (let lvl = 0; lvl <= maxLevel; lvl++) {
     const colNodes = cols.get(lvl);
     if (!colNodes || colNodes.length === 0) continue;
@@ -2490,8 +2549,19 @@ function tidyUp() {
       n.position.x = cursorX + (colW - s.w) / 2;
       n.position.y = cursorY;
       cursorY += s.h + GAP_Y;
+      if (n.position.y + s.h > maxBottom) maxBottom = n.position.y + s.h;
     }
-    cursorX += colW + GAP_X;
+    cursorX += colW + Math.max(GAP_X, labelGap.get(lvl) || 0);
+  }
+
+  if (orphans.length) {
+    const orphanY = maxBottom === -Infinity ? 0 : maxBottom + GAP_Y * 2;
+    let x = 0;
+    for (const n of orphans) {
+      n.position.x = x;
+      n.position.y = orphanY;
+      x += nodeSize(n).w + GAP_X;
+    }
   }
 
   save();
