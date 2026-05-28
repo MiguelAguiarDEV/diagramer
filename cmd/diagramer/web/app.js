@@ -302,6 +302,9 @@ function drawContainerPorts(g, node) {
 function drawSubPreview(g, node, w, h) {
   const pv = subPreview.get(node.data.subdiagramId);
   if (!pv || !pv.bbox || !pv.rects.length) return;
+  // Below a readable on-screen size the scaled minimap is just noise, so skip
+  // it (the label + ports still convey the container). Threshold in screen px.
+  if (w * (diagram.viewport.zoom || 1) < 110) return;
   const padX = 8, top = 7, bottom = 16;
   const aw = w - 2 * padX, ah = h - top - bottom;
   if (aw <= 6 || ah <= 6) return;
