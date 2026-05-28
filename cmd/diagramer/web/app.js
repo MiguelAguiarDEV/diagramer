@@ -350,6 +350,7 @@ const tidyBtn = document.getElementById("tidy");
 const navBackBtn = document.getElementById("nav-back");
 const navFwdBtn = document.getElementById("nav-fwd");
 const fitViewBtn = document.getElementById("fit-view");
+const edgeStyleBtn = document.getElementById("edge-style");
 const minimapSvg = document.getElementById("minimap");
 const minimapContent = document.getElementById("minimap-content");
 const minimapVp = document.getElementById("minimap-vp");
@@ -690,6 +691,7 @@ async function doSave() {
       name: diagram.name,
       nodes: diagram.nodes,
       edges: diagram.edges,
+      edgeStyle: diagram.edgeStyle || "",
       viewport: diagram.viewport,
     }, { ifMatch: currentEtag, wantEtag: true });
     if (diagram && diagram.id === id) currentEtag = etag;
@@ -1056,7 +1058,35 @@ function edgeHandlePos(edge, pa, pb, curv = edge.curvature) {
 // single control point chosen so the curve passes exactly through the handle
 // at t=0.5. Without curvature: the original cubic with control points pushed
 // perpendicular to each anchor's side (the look we had before A* routing).
+// Orthogonal (90°) routing for "synthetic" edge style: leave perpendicular to
+// each anchor's side via a short stub, then connect with axis-aligned segments.
+function orthogonalPath(pa, pb) {
+  const S = 24; // stub length so edges exit/enter cleanly perpendicular
+  const dir = (s) =>
+    s === "right" ? [1, 0] : s === "left" ? [-1, 0] :
+    s === "bottom" ? [0, 1] : s === "top" ? [0, -1] : [0, 0];
+  const [ax, ay] = dir(pa.side), [bx, by] = dir(pb.side);
+  const a1 = { x: pa.x + ax * S, y: pa.y + ay * S };
+  const b1 = { x: pb.x + bx * S, y: pb.y + by * S };
+  const pts = [pa, a1];
+  const aHoriz = ay === 0, bHoriz = by === 0;
+  if (aHoriz && bHoriz) {
+    const mx = (a1.x + b1.x) / 2;
+    pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+  } else if (!aHoriz && !bHoriz) {
+    const my = (a1.y + b1.y) / 2;
+    pts.push({ x: a1.x, y: my }, { x: b1.x, y: my });
+  } else if (aHoriz) {
+    pts.push({ x: b1.x, y: a1.y });
+  } else {
+    pts.push({ x: a1.x, y: b1.y });
+  }
+  pts.push(b1, pb);
+  return "M " + pts.map((p) => `${p.x},${p.y}`).join(" L ");
+}
+
 function edgePath(edge, pa, pb, curv = edge.curvature) {
+  if (diagram.edgeStyle === "synthetic") return orthogonalPath(pa, pb);
   if (curv) {
     const mid = edgeMidpoint(pa, pb);
     const hx = mid.x + curv.ox;
@@ -1120,7 +1150,10 @@ function render() {
       edgeAttrs["marker-end"] = isSel ? "url(#arrow-selected)" : "url(#arrow)";
     }
     eg.appendChild(svg("path", edgeAttrs));
-    if (isSel) {
+    // The curvature handle is meaningless for orthogonal edges (the route is
+    // computed), so it's only shown in organic mode.
+    const synthetic = diagram.edgeStyle === "synthetic";
+    if (isSel && !synthetic) {
       const h = edgeHandlePos(e, pa, pb, curv);
       eg.appendChild(svg("circle", {
         class: "edge-handle",
@@ -1133,7 +1166,7 @@ function render() {
     // Labels live in a layer above the nodes so a label that overlaps a node
     // (long text, tight gap) stays readable instead of being painted under it.
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
-      const h = edgeHandlePos(e, pa, pb, curv);
+      const h = synthetic ? edgeMidpoint(pa, pb) : edgeHandlePos(e, pa, pb, curv);
       const midX = h.x;
       const midY = h.y;
       const tw = _measureCtx.measureText(e.label).width + 10;
@@ -1253,6 +1286,7 @@ function render() {
   if (editing) positionEditor();
 
   deleteBtn.disabled = selectedIds.size === 0 && selectedEdgeId === null;
+  syncEdgeStyleBtn();
   connectBtn.classList.toggle("active", connecting);
   canvas.classList.toggle("connecting", connecting);
   applyViewport();
@@ -1631,6 +1665,19 @@ deleteBtn.addEventListener("click", deleteSelected);
 navBackBtn.addEventListener("click", navBack);
 navFwdBtn.addEventListener("click", navForward);
 fitViewBtn.addEventListener("click", fitView);
+
+edgeStyleBtn.addEventListener("click", () => {
+  if (!diagram) return;
+  diagram.edgeStyle = diagram.edgeStyle === "synthetic" ? "organic" : "synthetic";
+  save();
+  render();
+});
+
+function syncEdgeStyleBtn() {
+  const synthetic = !!diagram && diagram.edgeStyle === "synthetic";
+  edgeStyleBtn.textContent = synthetic ? "Edges: orthogonal" : "Edges: organic";
+  edgeStyleBtn.classList.toggle("active", synthetic);
+}
 
 function deleteSelected() {
   if (selectedEdgeId === null && selectedIds.size === 0) return;
