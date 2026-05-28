@@ -64,6 +64,8 @@ type Service interface {
 	Rename(ctx context.Context, id, newName string) (*Diagram, error)
 	// SetComponent flips whether the diagram is a library subdiagram.
 	SetComponent(ctx context.Context, id string, component bool) (*Diagram, error)
+	// SetEdgeStyle sets how connections are drawn ("organic" or "synthetic").
+	SetEdgeStyle(ctx context.Context, id, style string) (*Diagram, error)
 	// AutoLayout repositions the diagram's nodes into tidy dependency columns
 	// (the server-side equivalent of the UI's "Tidy up") and persists it.
 	AutoLayout(ctx context.Context, id string) (*Diagram, error)
@@ -235,6 +237,35 @@ func (s *service) SetComponent(ctx context.Context, id string, component bool) (
 		return d, nil
 	}
 	d.Component = component
+	d.UpdatedAt = s.now()
+	if err := s.repo.Save(ctx, d); err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	return d, nil
+}
+
+// ErrInvalidEdgeStyle is returned for an unknown edge style.
+var ErrInvalidEdgeStyle = errors.New("invalid edge style")
+
+func (s *service) SetEdgeStyle(ctx context.Context, id, style string) (*Diagram, error) {
+	switch style {
+	case "", "organic":
+		style = "" // normalize the default away so it stays omitempty
+	case "synthetic":
+		// keep
+	default:
+		return nil, ErrInvalidEdgeStyle
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	d, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.EdgeStyle == style {
+		return d, nil
+	}
+	d.EdgeStyle = style
 	d.UpdatedAt = s.now()
 	if err := s.repo.Save(ctx, d); err != nil {
 		return nil, fmt.Errorf("save: %w", err)

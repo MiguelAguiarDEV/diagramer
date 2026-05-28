@@ -83,7 +83,7 @@ func TestToolsAreRegistered(t *testing.T) {
 		"list_diagrams", "get_diagram", "create_diagram", "rename_diagram",
 		"delete_diagram", "add_node", "update_node", "delete_node",
 		"add_edge", "update_edge", "delete_edge", "create_subdiagram",
-		"auto_layout",
+		"auto_layout", "set_edge_style",
 	}
 	for _, w := range want {
 		if !got[w] {
@@ -410,5 +410,33 @@ func TestConcurrentAddNodeNoLostUpdate(t *testing.T) {
 	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
 	if len(g.Diagram.Nodes) != N {
 		t.Errorf("lost-update: expected %d nodes after concurrent add_node, got %d", N, len(g.Diagram.Nodes))
+	}
+}
+
+func TestSetEdgeStyleTool(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Styled"}).Diagram.ID
+
+	out := callTool[diagramOutput](t, cs, "set_edge_style", map[string]any{"diagram_id": id, "style": "synthetic"})
+	if out.Diagram == nil || out.Diagram.EdgeStyle != "synthetic" {
+		t.Fatalf("set synthetic failed: %+v", out.Diagram)
+	}
+	// Round-trips on read.
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if g.Diagram.EdgeStyle != "synthetic" {
+		t.Errorf("edgeStyle not persisted: %q", g.Diagram.EdgeStyle)
+	}
+	// "organic" normalizes back to empty (the omitempty default).
+	out = callTool[diagramOutput](t, cs, "set_edge_style", map[string]any{"diagram_id": id, "style": "organic"})
+	if out.Diagram.EdgeStyle != "" {
+		t.Errorf("organic should clear edgeStyle, got %q", out.Diagram.EdgeStyle)
+	}
+	// An invalid style is a tool error, not a silent default.
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "set_edge_style",
+		Arguments: map[string]any{"diagram_id": id, "style": "zigzag"},
+	})
+	if err == nil && !res.IsError {
+		t.Error("invalid style should error")
 	}
 }

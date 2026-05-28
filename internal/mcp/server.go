@@ -104,6 +104,11 @@ type updateNodeInput struct {
 	Port         *string  `json:"port,omitempty" jsonschema:"interface role: 'in', 'out', or 'dep'; empty string clears it (omit to keep)"`
 }
 
+type setEdgeStyleInput struct {
+	DiagramID string `json:"diagram_id" jsonschema:"diagram ID"`
+	Style     string `json:"style" jsonschema:"edge routing style: 'organic' (flowing bezier, default) or 'synthetic' (orthogonal 90° routing, block-diagram/n8n style)"`
+}
+
 type createSubdiagramInput struct {
 	DiagramID string `json:"diagram_id" jsonschema:"ID of the parent diagram"`
 	NodeID    string `json:"node_id" jsonschema:"ID of the node to turn into a container"`
@@ -172,6 +177,11 @@ func (s *Server) registerTools() {
 		Name:        "auto_layout",
 		Description: "Reposition a diagram's nodes into tidy left-to-right columns by dependency depth (the equivalent of the UI's Tidy up). Returns the updated diagram. Use after adding nodes/edges to get a clean layout without computing coordinates by hand.",
 	}, s.autoLayout)
+
+	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
+		Name:        "set_edge_style",
+		Description: "Set how a diagram's connections are drawn: 'organic' (flowing bezier, default) or 'synthetic' (orthogonal 90° routing, block-diagram/n8n style). Returns the updated diagram.",
+	}, s.setEdgeStyle)
 
 	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
 		Name:        "update_node",
@@ -277,6 +287,14 @@ func (s *Server) addNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in addN
 
 func (s *Server) autoLayout(ctx context.Context, _ *mcpsdk.CallToolRequest, in idInput) (*mcpsdk.CallToolResult, diagramOutput, error) {
 	d, err := s.svc.AutoLayout(ctx, in.ID)
+	if err != nil {
+		return nil, diagramOutput{}, err
+	}
+	return nil, diagramOutput{Diagram: d}, nil
+}
+
+func (s *Server) setEdgeStyle(ctx context.Context, _ *mcpsdk.CallToolRequest, in setEdgeStyleInput) (*mcpsdk.CallToolResult, diagramOutput, error) {
+	d, err := s.svc.SetEdgeStyle(ctx, in.DiagramID, in.Style)
 	if err != nil {
 		return nil, diagramOutput{}, err
 	}

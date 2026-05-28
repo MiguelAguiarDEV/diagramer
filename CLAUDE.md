@@ -134,15 +134,17 @@ port: drag from a port disc, or drop a connection onto one — stored as
 Inside a subdiagram, create interface nodes via the Add menu → Interface port,
 or mark/clear any node's role from its context menu.
 
-## MCP tools (13)
+## MCP tools (14)
 
 `list_diagrams`, `get_diagram`, `create_diagram`, `rename_diagram`,
 `delete_diagram`, `add_node`, `update_node`, `delete_node`, `add_edge`,
-`update_edge`, `delete_edge`, `create_subdiagram`, `auto_layout`. Node tools
-accept `fill`/`stroke`; `update_node` also accepts `subdiagram_id`. `add_node`'s
-`x`/`y` are optional (auto-placed beside existing nodes when omitted).
-`auto_layout` tidies a diagram into dependency columns server-side — the
-layered layout mirrors the frontend's "Tidy up" (`internal/diagrams/layout.go`).
+`update_edge`, `delete_edge`, `create_subdiagram`, `auto_layout`,
+`set_edge_style`. Node tools accept `fill`/`stroke`; `update_node` also accepts
+`subdiagram_id`. `add_node`'s `x`/`y` are optional (auto-placed beside existing
+nodes when omitted). `auto_layout` tidies a diagram into dependency columns
+server-side — the layered layout mirrors the frontend's "Tidy up"
+(`internal/diagrams/layout.go`). `set_edge_style` switches a diagram between
+`organic` (bezier) and `synthetic` (orthogonal) edge routing.
 
 ## Principles
 
