@@ -40,3 +40,41 @@ test("toggling edge style switches to orthogonal routing and persists", async ({
   const d = await (await request.get(`/api/diagrams/${id}`)).json();
   expect(d.edgeStyle).toBe("synthetic");
 });
+
+// Stress: orthogonal routing must survive self-loops, parallel edges and cycles
+// without throwing, and toggling while an edge is selected must not break.
+test("orthogonal routing handles self-loops, parallels and cycles", async ({
+  page,
+  request,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+
+  const id = await createDiagram(
+    request,
+    "synthetic-stress",
+    [mkNode("a", "rect", "A", 0, 0), mkNode("b", "rect", "B", 300, 0)],
+    [
+      mkEdge("self", "a", "a", "loop"),
+      mkEdge("p1", "a", "b", "one"),
+      mkEdge("p2", "a", "b", "two"), // parallel
+      mkEdge("cyc", "b", "a"),       // back-edge (cycle)
+    ],
+  );
+  await openDiagram(page, id);
+  await page.click("#edge-style"); // → orthogonal
+  await page.waitForTimeout(100);
+  await expect(page.locator("#edges .edge-group")).toHaveCount(4);
+
+  // No curvature handles in synthetic mode, even after selecting everything.
+  await page.keyboard.press("Control+a").catch(() => {});
+  await page.waitForTimeout(50);
+  await expect(page.locator(".edge-handle")).toHaveCount(0);
+
+  // Toggle back to organic and tidy — still no errors.
+  await page.click("#edge-style");
+  await page.click("#tidy");
+  await page.waitForTimeout(100);
+  await expect(page.locator("#edges .edge-group")).toHaveCount(4);
+  expect(errors, errors.join("\n")).toEqual([]);
+});
