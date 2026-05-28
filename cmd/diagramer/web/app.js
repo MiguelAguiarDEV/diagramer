@@ -1063,7 +1063,7 @@ function edgeHandlePos(edge, pa, pb, curv = edge.curvature) {
 // perpendicular to each anchor's side (the look we had before A* routing).
 // Orthogonal (90°) routing for "synthetic" edge style: leave perpendicular to
 // each anchor's side via a short stub, then connect with axis-aligned segments.
-function orthogonalPath(pa, pb) {
+function orthogonalPath(pa, pb, off = 0) {
   const S = 24; // stub length so edges exit/enter cleanly perpendicular
   const dir = (s) =>
     s === "right" ? [1, 0] : s === "left" ? [-1, 0] :
@@ -1073,12 +1073,25 @@ function orthogonalPath(pa, pb) {
   const b1 = { x: pb.x + bx * S, y: pb.y + by * S };
   const pts = [pa, a1];
   const aHoriz = ay === 0, bHoriz = by === 0;
+  // `off` fans parallel edges apart perpendicular to the run. With off=0 the
+  // base route is the natural single-jog "Z"; with off it routes via an
+  // offset cross-run so same-pair parallels (often at equal height) separate.
   if (aHoriz && bHoriz) {
-    const mx = (a1.x + b1.x) / 2;
-    pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+    if (off === 0) {
+      const mx = (a1.x + b1.x) / 2;
+      pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+    } else {
+      const my = (a1.y + b1.y) / 2 + off;
+      pts.push({ x: a1.x, y: my }, { x: b1.x, y: my });
+    }
   } else if (!aHoriz && !bHoriz) {
-    const my = (a1.y + b1.y) / 2;
-    pts.push({ x: a1.x, y: my }, { x: b1.x, y: my });
+    if (off === 0) {
+      const my = (a1.y + b1.y) / 2;
+      pts.push({ x: a1.x, y: my }, { x: b1.x, y: my });
+    } else {
+      const mx = (a1.x + b1.x) / 2 + off;
+      pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+    }
   } else if (aHoriz) {
     pts.push({ x: b1.x, y: a1.y });
   } else {
@@ -1088,8 +1101,8 @@ function orthogonalPath(pa, pb) {
   return "M " + pts.map((p) => `${p.x},${p.y}`).join(" L ");
 }
 
-function edgePath(edge, pa, pb, curv = edge.curvature) {
-  if (diagram.edgeStyle === "synthetic") return orthogonalPath(pa, pb);
+function edgePath(edge, pa, pb, curv = edge.curvature, parOff = 0) {
+  if (diagram.edgeStyle === "synthetic") return orthogonalPath(pa, pb, parOff);
   if (curv) {
     const mid = edgeMidpoint(pa, pb);
     const hx = mid.x + curv.ox;
@@ -1128,16 +1141,22 @@ function render() {
     const b = diagram.nodes.find((n) => n.id === e.target);
     if (!a || !b) continue;
     const { pa, pb } = anchorsFor(e, a, b);
+    const synthetic = diagram.edgeStyle === "synthetic";
     let curv = e.curvature;
+    let parOff = 0; // perpendicular separation for parallel edges (synthetic)
     const n = parN.get(e.id) || 1;
-    if (!curv && n > 1) {
+    if (n > 1) {
       const i = parIdx.get(e.id);
-      const dx = pb.x - pa.x, dy = pb.y - pa.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const off = (i - (n - 1) / 2) * 36;
-      curv = { ox: (-dy / len) * off, oy: (dx / len) * off };
+      if (synthetic) {
+        parOff = (i - (n - 1) / 2) * 22; // fan the orthogonal mid-runs apart
+      } else if (!curv) {
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const off = (i - (n - 1) / 2) * 36;
+        curv = { ox: (-dy / len) * off, oy: (dx / len) * off };
+      }
     }
-    const d = edgePath(e, pa, pb, curv);
+    const d = edgePath(e, pa, pb, curv, parOff);
     const isSel = e.id === selectedEdgeId;
     const eg = svg("g", {
       class: "edge-group" + (isSel ? " selected" : ""),
@@ -1155,7 +1174,6 @@ function render() {
     eg.appendChild(svg("path", edgeAttrs));
     // The curvature handle is meaningless for orthogonal edges (the route is
     // computed), so it's only shown in organic mode.
-    const synthetic = diagram.edgeStyle === "synthetic";
     if (isSel && !synthetic) {
       const h = edgeHandlePos(e, pa, pb, curv);
       eg.appendChild(svg("circle", {
@@ -1170,6 +1188,11 @@ function render() {
     // (long text, tight gap) stays readable instead of being painted under it.
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
       const h = synthetic ? edgeMidpoint(pa, pb) : edgeHandlePos(e, pa, pb, curv);
+      if (synthetic && parOff) {
+        // Follow the fanned mid-run so parallel labels don't stack.
+        if (pa.side === "left" || pa.side === "right") h.y += parOff;
+        else h.x += parOff;
+      }
       const midX = h.x;
       const midY = h.y;
       const tw = _measureCtx.measureText(e.label).width + 10;
