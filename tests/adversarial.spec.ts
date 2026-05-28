@@ -49,6 +49,30 @@ test("import tolerates a dangling edge instead of failing the whole file", async
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("a corrupt viewport (zoom=0) renders without NaN/Infinity errors", async ({
+  page,
+  request,
+}) => {
+  const errors = watchErrors(page);
+  const res = await request.post(`/api/diagrams`, { data: { name: "z0" } });
+  const d = await res.json();
+  await request.put(`/api/diagrams/${d.id}`, {
+    data: {
+      name: "z0",
+      nodes: [{ id: "a", position: { x: 0, y: 0 }, data: { label: "A" } }],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 0 }, // corrupt: would divide-by-zero the minimap
+    },
+  });
+
+  await page.goto(`/d/${d.id}`);
+  await page.waitForSelector("#nodes .node");
+  await expect(page.locator("#nodes .node")).toHaveCount(1);
+  await page.keyboard.press("f"); // fit must work too
+  await page.waitForTimeout(150);
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("self-loops, cycles and huge labels render and tidy without throwing", async ({
   page,
   request,

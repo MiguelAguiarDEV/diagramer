@@ -727,6 +727,7 @@ async function loadDiagram(id, opts = {}) {
 
   const { data: d, etag } = await api("GET", `/api/diagrams/${id}`, null, { wantEtag: true });
   diagram = d;
+  sanitizeViewport(diagram);
   currentEtag = etag;
   renderBreadcrumb();
   recordNav(id);
@@ -3002,6 +3003,19 @@ function logExportError(e) {
 }
 
 // Zoom/pan so the whole diagram fits the canvas — the "see everything" view.
+// Coerce a persisted viewport into sane bounds. A hand-edited or corrupt file
+// can carry zoom=0 / NaN / missing fields, which would propagate NaN/Infinity
+// into every model↔screen conversion (the minimap divides by zoom). Heal at the
+// load boundary so the rest of the code can trust the viewport.
+function sanitizeViewport(d) {
+  const v = (d.viewport = d.viewport || { x: 0, y: 0, zoom: 1 });
+  v.zoom = Number.isFinite(v.zoom) && v.zoom > 0
+    ? Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom))
+    : 1;
+  if (!Number.isFinite(v.x)) v.x = 0;
+  if (!Number.isFinite(v.y)) v.y = 0;
+}
+
 function fitView() {
   if (!diagram) return;
   const b = nodesBBox();
