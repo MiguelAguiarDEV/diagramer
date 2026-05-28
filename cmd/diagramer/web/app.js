@@ -3079,7 +3079,7 @@ function multiNodesMenuItems() {
   // Naming convention: "Vertical · …" means "line them up on a vertical line"
   // (same X, varied Y). "Horizontal · …" means line them up on a horizontal
   // line (same Y, varied X).
-  return [
+  const items = [
     { label: "Vertical · left",   action: () => alignSelected("x", "min") },
     { label: "Vertical · center", action: () => alignSelected("x", "center") },
     { label: "Vertical · right",  action: () => alignSelected("x", "max") },
@@ -3088,11 +3088,47 @@ function multiNodesMenuItems() {
     { label: "Horizontal · center", action: () => alignSelected("y", "center") },
     { label: "Horizontal · bottom", action: () => alignSelected("y", "max") },
     { separator: true },
+  ];
+  if (selectedIds.size >= 3) {
+    items.push(
+      { label: "Distribute · horizontally", action: () => distributeSelected("x") },
+      { label: "Distribute · vertically",   action: () => distributeSelected("y") },
+      { separator: true },
+    );
+  }
+  items.push(
     { label: "Color ▸", submenu: () => colorMenuItems(new Set(selectedIds)) },
     { separator: true },
     { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete all", action: () => deleteSelected() },
-  ];
+  );
+  return items;
+}
+
+// Spreads 3+ selected nodes so the gaps between them along `axis` are equal,
+// keeping the outermost two fixed (standard "distribute spacing").
+function distributeSelected(axis) {
+  const nodes = [...selectedIds]
+    .map((id) => diagram.nodes.find((n) => n.id === id))
+    .filter(Boolean);
+  if (nodes.length < 3) return;
+  const sizeOf = (n) => (axis === "x" ? nodeSize(n).w : nodeSize(n).h);
+  const posOf = (n) => (axis === "x" ? n.position.x : n.position.y);
+  const setPos = (n, v) => { if (axis === "x") n.position.x = v; else n.position.y = v; };
+  nodes.sort((a, b) => posOf(a) - posOf(b));
+  const start = posOf(nodes[0]);
+  const end = posOf(nodes[nodes.length - 1]) + sizeOf(nodes[nodes.length - 1]);
+  const totalSize = nodes.reduce((s, n) => s + sizeOf(n), 0);
+  const gap = (end - start - totalSize) / (nodes.length - 1);
+  pushHistory();
+  let cursor = start;
+  for (const n of nodes) {
+    setPos(n, cursor);
+    cursor += sizeOf(n) + gap;
+  }
+  save();
+  render();
+  setStatus("distributed");
 }
 
 canvas.addEventListener("contextmenu", (evt) => {
