@@ -906,8 +906,13 @@ diagramNameEl.addEventListener("click", (evt) => {
   if (!c) return;
   const id = c.dataset.id;
   const idx = breadcrumb.findIndex((b) => b.id === id);
+  const prevBreadcrumb = breadcrumb;
   if (idx >= 0) breadcrumb = breadcrumb.slice(0, idx);
-  loadDiagram(id, { push: true, keepBreadcrumb: true });
+  loadDiagram(id, { push: true, keepBreadcrumb: true }).catch((e) => {
+    breadcrumb = prevBreadcrumb; // ancestor gone → restore, don't leak
+    setStatus("couldn't open diagram");
+    console.error(e);
+  });
 });
 
 // ---------- undo / redo ----------
@@ -2276,8 +2281,18 @@ sidebarListEl.addEventListener("click", async (evt) => {
   const path = li.dataset.path;
   if (path === sidebarActivePath) return; // already here, on this path
   const ids = path.split("/");
+  const prevBreadcrumb = breadcrumb;
   breadcrumb = ids.slice(0, -1).map((pid) => ({ id: pid, name: (sidebarById.get(pid) || {}).name || "…" }));
-  await loadDiagram(ids[ids.length - 1], { push: true, keepBreadcrumb: true });
+  try {
+    await loadDiagram(ids[ids.length - 1], { push: true, keepBreadcrumb: true });
+  } catch (e) {
+    // The diagram was likely deleted elsewhere; restore state and resync the
+    // sidebar so the stale entry disappears, instead of leaking a rejection.
+    breadcrumb = prevBreadcrumb;
+    setStatus("couldn't open diagram");
+    console.error(e);
+    await refreshSidebar();
+  }
 });
 
 // Double-click a name to rename in place.
