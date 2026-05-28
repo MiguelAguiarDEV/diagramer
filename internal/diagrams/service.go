@@ -83,7 +83,50 @@ func (s *service) List(ctx context.Context) ([]DiagramMeta, error) {
 }
 
 func (s *service) Get(ctx context.Context, id string) (*Diagram, error) {
-	return s.repo.Get(ctx, id)
+	d, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	pruneDanglingEdges(d)
+	return d, nil
+}
+
+// pruneDanglingEdges drops edges whose source/target references a node that no
+// longer exists. Such edges are invisible (the UI's render skips them) yet
+// would block saving, since validate() rejects unknown references. The HTTP
+// PUT path already prevents them, so they only arise in hand-edited or
+// imported ./data files — healing on read keeps those files usable. A new
+// slice is allocated only when something is removed, so a shared backing array
+// (e.g. an in-memory repo) is never mutated.
+func pruneDanglingEdges(d *Diagram) {
+	if d == nil || len(d.Edges) == 0 {
+		return
+	}
+	ids := make(map[string]struct{}, len(d.Nodes))
+	for i := range d.Nodes {
+		ids[d.Nodes[i].ID] = struct{}{}
+	}
+	dangling := false
+	for i := range d.Edges {
+		_, okS := ids[d.Edges[i].Source]
+		_, okT := ids[d.Edges[i].Target]
+		if !okS || !okT {
+			dangling = true
+			break
+		}
+	}
+	if !dangling {
+		return
+	}
+	kept := make([]Edge, 0, len(d.Edges))
+	for _, e := range d.Edges {
+		_, okS := ids[e.Source]
+		_, okT := ids[e.Target]
+		if okS && okT {
+			kept = append(kept, e)
+		}
+	}
+	d.Edges = kept
 }
 
 func (s *service) Create(ctx context.Context, name string, component bool) (*Diagram, error) {

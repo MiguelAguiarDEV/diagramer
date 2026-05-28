@@ -51,6 +51,42 @@ func (r *memRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func TestGetPrunesDanglingEdges(t *testing.T) {
+	repo := newMemRepo()
+	s := NewService(repo)
+	ctx := context.Background()
+
+	// Persist a diagram with a dangling edge directly through the repo, which
+	// (unlike the service's Update) doesn't validate — mimicking a hand-edited
+	// ./data file.
+	d := &Diagram{
+		ID:    "x",
+		Name:  "hand-edited",
+		Nodes: []Node{{ID: "a"}, {ID: "b"}},
+		Edges: []Edge{
+			{ID: "good", Source: "a", Target: "b"},
+			{ID: "dangling", Source: "a", Target: "ghost"},
+		},
+		Viewport: Viewport{Zoom: 1},
+	}
+	if err := repo.Save(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Get(ctx, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Edges) != 1 || got.Edges[0].ID != "good" {
+		t.Fatalf("dangling edge not pruned: %+v", got.Edges)
+	}
+	// The repo's stored copy must not have been mutated by the prune.
+	stored, _ := repo.Get(ctx, "x")
+	if len(stored.Edges) != 2 {
+		t.Errorf("prune mutated the underlying store: %d edges", len(stored.Edges))
+	}
+}
+
 func TestCreate(t *testing.T) {
 	s := NewService(newMemRepo())
 	d, err := s.Create(context.Background(), "  hello  ", false)
