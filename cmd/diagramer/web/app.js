@@ -1706,6 +1706,43 @@ function syncEdgeStyleBtn() {
   edgeStyleBtn.classList.toggle("active", synthetic);
 }
 
+// Clones the selected nodes (offset a little) plus any edges wholly inside the
+// selection, remapped to the clones, then selects the copies. A container's
+// subdiagram link is copied by reference (consistent with the model).
+function duplicateSelection() {
+  if (selectedIds.size === 0) return;
+  pushHistory();
+  const OFF = 24;
+  const idMap = new Map();
+  const clones = [];
+  for (const n of diagram.nodes) {
+    if (!selectedIds.has(n.id)) continue;
+    const nid = uid();
+    idMap.set(n.id, nid);
+    clones.push({
+      id: nid,
+      kind: n.kind,
+      position: { x: n.position.x + OFF, y: n.position.y + OFF },
+      data: { ...n.data },
+    });
+  }
+  for (const c of clones) diagram.nodes.push(c);
+  for (const e of diagram.edges) {
+    if (idMap.has(e.source) && idMap.has(e.target)) {
+      const ne = { id: uid(), source: idMap.get(e.source), target: idMap.get(e.target) };
+      if (e.label) ne.label = e.label;
+      if (e.sourcePort) ne.sourcePort = e.sourcePort;
+      if (e.targetPort) ne.targetPort = e.targetPort;
+      if (e.curvature) ne.curvature = { ...e.curvature };
+      diagram.edges.push(ne);
+    }
+  }
+  selectedIds = new Set(idMap.values());
+  selectedEdgeId = null;
+  save();
+  render();
+}
+
 function deleteSelected() {
   if (selectedEdgeId === null && selectedIds.size === 0) return;
   pushHistory();
@@ -2303,6 +2340,18 @@ window.addEventListener("keydown", (evt) => {
   if (mod && (key === "y" || (key === "z" && evt.shiftKey))) {
     evt.preventDefault();
     redo();
+    return;
+  }
+  if (mod && key === "a") {
+    evt.preventDefault();
+    selectedIds = new Set(diagram.nodes.map((n) => n.id));
+    selectedEdgeId = null;
+    render();
+    return;
+  }
+  if (mod && key === "d") {
+    evt.preventDefault();
+    duplicateSelection();
     return;
   }
 
