@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +73,15 @@ type Service interface {
 type service struct {
 	repo Repository
 	now  func() time.Time
+	// writeMu serializes mutating operations so a read-modify-write (notably
+	// Update's If-Match check-and-save) is atomic. Without it the optimistic
+	// concurrency check is a TOCTOU: two writers can both read the same ETag,
+	// both pass the check, and both save — a silent lost update. Reads (List,
+	// Get) intentionally don't take it. This protects in-process concurrency
+	// (multiple browser tabs / requests); cross-process writers (a separate
+	// -mcp process editing the same ./data) still race and would need file
+	// locking — an accepted limitation for a local single-user tool.
+	writeMu sync.Mutex
 }
 
 func NewService(repo Repository) Service {
@@ -130,6 +140,8 @@ func pruneDanglingEdges(d *Diagram) {
 }
 
 func (s *service) Create(ctx context.Context, name string, component bool) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, ErrInvalidName
@@ -158,6 +170,8 @@ func (s *service) Update(ctx context.Context, d *Diagram, ifMatch string) (*Diag
 	if d == nil {
 		return nil, errors.New("nil diagram")
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	existing, err := s.repo.Get(ctx, d.ID)
 	if err != nil {
 		return nil, err
@@ -189,6 +203,8 @@ func (s *service) Update(ctx context.Context, d *Diagram, ifMatch string) (*Diag
 }
 
 func (s *service) Rename(ctx context.Context, id, newName string) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil, ErrInvalidName
@@ -209,6 +225,8 @@ func (s *service) Rename(ctx context.Context, id, newName string) (*Diagram, err
 }
 
 func (s *service) SetComponent(ctx context.Context, id string, component bool) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -225,6 +243,8 @@ func (s *service) SetComponent(ctx context.Context, id string, component bool) (
 }
 
 func (s *service) AutoLayout(ctx context.Context, id string) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.Get(ctx, id) // prunes dangling edges so the re-save stays clean
 	if err != nil {
 		return nil, err
@@ -240,6 +260,8 @@ func (s *service) AutoLayout(ctx context.Context, id string) (*Diagram, error) {
 }
 
 func (s *service) Delete(ctx context.Context, id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	return s.repo.Delete(ctx, id)
 }
 

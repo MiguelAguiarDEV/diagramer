@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/MiguelAguiarDEV/diagramer/internal/diagrams"
+	"github.com/MiguelAguiarDEV/diagramer/internal/storage"
 )
 
 // memRepo for handler tests.
@@ -218,5 +219,110 @@ func TestOversizedBodyReturns413(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("oversized body: got %d, want 413", resp.StatusCode)
+	}
+}
+
+// Optimistic concurrency: when N clients PUT with the SAME If-Match, exactly
+// one must win (200) and the rest must get 412 — otherwise the ETag check is a
+// no-op and concurrent writers silently clobber each other (lost update).
+func TestConcurrentIfMatchSingleWinner(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	resp, _ := http.Post(srv.URL+"/api/diagrams", "application/json", bytes.NewBufferString(`{"name":"race"}`))
+	var d diagrams.Diagram
+	json.NewDecoder(resp.Body).Decode(&d)
+	etag := resp.Header.Get("ETag")
+
+	const N = 40
+	var wg sync.WaitGroup
+	codes := make([]int, N)
+	start := make(chan struct{})
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := fmt.Sprintf(`{"id":%q,"name":"race","nodes":[{"id":"n%d","position":{"x":%d,"y":0},"data":{"label":"L"}}],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}`, d.ID, i, i)
+			req, _ := http.NewRequest("PUT", srv.URL+"/api/diagrams/"+d.ID, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("If-Match", etag)
+			<-start
+			r, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes[i] = -1
+				return
+			}
+			codes[i] = r.StatusCode
+			r.Body.Close()
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	wins, conflicts := 0, 0
+	for _, c := range codes {
+		switch c {
+		case 200:
+			wins++
+		case http.StatusPreconditionFailed:
+			conflicts++
+		}
+	}
+	if wins != 1 {
+		t.Errorf("expected exactly 1 winner, got %d wins / %d conflicts (lost-update race)", wins, conflicts)
+	}
+}
+
+// Same race but against the real file repo, whose disk IO between the service's
+// Get and Save widens the TOCTOU window enough to expose the lost-update bug.
+func TestConcurrentIfMatchSingleWinnerFileRepo(t *testing.T) {
+	repo, err := storage.NewJSONFileRepo(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := diagrams.NewService(repo)
+	mux := http.NewServeMux()
+	registerAPIRoutes(mux, svc, nil)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, _ := http.Post(srv.URL+"/api/diagrams", "application/json", bytes.NewBufferString(`{"name":"race"}`))
+	var d diagrams.Diagram
+	json.NewDecoder(resp.Body).Decode(&d)
+	etag := resp.Header.Get("ETag")
+
+	const N = 40
+	var wg sync.WaitGroup
+	codes := make([]int, N)
+	start := make(chan struct{})
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := fmt.Sprintf(`{"id":%q,"name":"race","nodes":[{"id":"n%d","position":{"x":%d,"y":0},"data":{"label":"L"}}],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}`, d.ID, i, i)
+			req, _ := http.NewRequest("PUT", srv.URL+"/api/diagrams/"+d.ID, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("If-Match", etag)
+			<-start
+			r, e := http.DefaultClient.Do(req)
+			if e != nil {
+				codes[i] = -1
+				return
+			}
+			codes[i] = r.StatusCode
+			r.Body.Close()
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	wins := 0
+	for _, c := range codes {
+		if c == 200 {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Errorf("expected exactly 1 winner, got %d (lost-update race via TOCTOU)", wins)
 	}
 }
