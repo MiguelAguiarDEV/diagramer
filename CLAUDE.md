@@ -55,6 +55,20 @@ make test-e2e   # Playwright (installs deps + chromium, builds, drives a browser
 ./diagramer -mcp -data ./data   # run as MCP server over stdio
 ```
 
+With no subcommand `./diagramer` runs the HTTP server (`-addr`, `-data`) or, with
+`-mcp`, the MCP server. It also has one-shot CLI subcommands that operate
+directly on the data dir (no server) for scripting — put `-data` before the
+positional args:
+
+```sh
+./diagramer create -data ./data "My Diagram"   # prints the new id
+./diagramer list   -data ./data                # id, name, counts, kind
+./diagramer get    -data ./data <id>           # full diagram as JSON
+./diagramer layout -data ./data <id>           # auto-layout (tidy)
+./diagramer export -data ./data <id> out.json  # write JSON (omit path → stdout)
+./diagramer delete -data ./data <id>
+```
+
 E2E runs a fresh `go run` against a throwaway data dir. Where the Playwright
 CDN is blocked, point `PW_CHROMIUM` at a pre-installed chromium binary.
 
