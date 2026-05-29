@@ -8,6 +8,9 @@ const DATA_DIR = "/tmp/diagramer-e2e-data";
 
 export default defineConfig({
   testDir: ".",
+  // demo.spec.ts only generates marketing screenshots (no assertions); keep it
+  // out of the regular suite so it doesn't add time for zero verification.
+  testIgnore: ["demo.spec.ts"],
   fullyParallel: false,
   workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
