@@ -97,6 +97,15 @@ test("demo: architecture, themes, routing, guides, container, menus", async ({ p
   await page.waitForTimeout(250);
   await page.screenshot({ path: `${SHOTS}/demo-05-container-subdiagram.png` });
 
+  // 5b — drill into the container to show the subdiagram's interior: the
+  // breadcrumb trail and the interface-role badges (IN/OUT/DEP).
+  await page.locator('#nodes .node[data-id="pay"]').dblclick();
+  await page.waitForSelector('#nodes .node[data-id="gw"]');
+  await page.waitForTimeout(250);
+  await page.keyboard.press("f");
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: `${SHOTS}/demo-08-subdiagram-inside.png` });
+
   // 6 — alignment + equidistant-spacing guides mid-drag.
   const guides = await createDiagram(request, "Smart guides",
     [mkNode("a", "rect", "Alpha", 0, 0), mkNode("c", "rect", "Gamma", 420, 0), mkNode("m", "rect", "Beta", 150, 260)], []);
