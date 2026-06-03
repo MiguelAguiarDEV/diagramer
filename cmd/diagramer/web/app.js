@@ -302,6 +302,9 @@ function drawContainerPorts(g, node) {
 function drawSubPreview(g, node, w, h) {
   const pv = subPreview.get(node.data.subdiagramId);
   if (!pv || !pv.bbox || !pv.rects.length) return;
+  // Below a readable on-screen size the scaled minimap is just noise, so skip
+  // it (the label + ports still convey the container). Threshold in screen px.
+  if (w * (diagram.viewport.zoom || 1) < 110) return;
   const padX = 8, top = 7, bottom = 16;
   const aw = w - 2 * padX, ah = h - top - bottom;
   if (aw <= 6 || ah <= 6) return;
@@ -333,6 +336,8 @@ const canvas = document.getElementById("canvas");
 const viewportLayer = document.getElementById("viewport");
 const edgesLayer = document.getElementById("edges");
 const nodesLayer = document.getElementById("nodes");
+const edgeLabelsLayer = document.getElementById("edge-labels");
+const guidesLayer = document.getElementById("guides");
 const addBtn = document.getElementById("add-box");
 const connectBtn = document.getElementById("connect-mode");
 const deleteBtn = document.getElementById("delete");
@@ -348,6 +353,7 @@ const tidyBtn = document.getElementById("tidy");
 const navBackBtn = document.getElementById("nav-back");
 const navFwdBtn = document.getElementById("nav-fwd");
 const fitViewBtn = document.getElementById("fit-view");
+const edgeStyleBtn = document.getElementById("edge-style");
 const minimapSvg = document.getElementById("minimap");
 const minimapContent = document.getElementById("minimap-content");
 const minimapVp = document.getElementById("minimap-vp");
@@ -367,6 +373,10 @@ let pendingEdge = null;
 let lasso = null;
 let editing = null; // { kind: "node" | "edge", id }
 let edgeDrag = null; // { edgeId, snapshot }
+// Transient alignment guide lines drawn while dragging (model coords).
+let alignGuides = [];
+const SNAP_PX = 6; // snap threshold in screen pixels
+let nudgeHistoryTimer = null; // coalesces arrow-key nudge bursts into one undo
 let saveTimer = null;
 // Drill-down trail of ancestor diagrams when navigating into subdiagrams.
 // Session-only; entries are { id, name }. The current diagram is not included.
@@ -509,19 +519,30 @@ async function init() {
   let list = await api("GET", "/api/diagrams");
   if (!list) list = [];
 
-  let toLoad = null;
-  if (targetId && list.some((d) => d.id === targetId)) {
-    toLoad = targetId;
-  } else if (list.length > 0) {
-    toLoad = list[0].id;
-  } else {
-    const created = await api("POST", "/api/diagrams", { name: "Untitled" });
-    list = [created];
-    toLoad = created.id;
+  // Candidate ids in priority order: the URL target first, then the rest.
+  const ids = [];
+  if (targetId && list.some((d) => d.id === targetId)) ids.push(targetId);
+  for (const m of list) if (!ids.includes(m.id)) ids.push(m.id);
+
+  renderSidebar(list, ids[0] || null);
+
+  // Try candidates in order; skip any that won't load (a stale index entry
+  // whose file was deleted, or a corrupt file) so one bad diagram can't brick
+  // the whole app on boot.
+  for (const id of ids) {
+    try {
+      await loadDiagram(id, { push: targetId !== id });
+      return;
+    } catch (e) {
+      console.error("skipping unloadable diagram", id, e);
+    }
   }
 
-  renderSidebar(list, toLoad);
-  await loadDiagram(toLoad, { push: targetId !== toLoad });
+  // Empty dir, or every entry was unloadable → start fresh.
+  const created = await api("POST", "/api/diagrams", { name: "Untitled" });
+  list = [created, ...list.filter((m) => m.id !== created.id)];
+  renderSidebar(list, created.id);
+  await loadDiagram(created.id, { push: false });
 }
 
 async function refreshSidebar() {
@@ -674,6 +695,7 @@ async function doSave() {
       name: diagram.name,
       nodes: diagram.nodes,
       edges: diagram.edges,
+      edgeStyle: diagram.edgeStyle || "",
       viewport: diagram.viewport,
     }, { ifMatch: currentEtag, wantEtag: true });
     if (diagram && diagram.id === id) currentEtag = etag;
@@ -726,6 +748,7 @@ async function loadDiagram(id, opts = {}) {
 
   const { data: d, etag } = await api("GET", `/api/diagrams/${id}`, null, { wantEtag: true });
   diagram = d;
+  sanitizeViewport(diagram);
   currentEtag = etag;
   renderBreadcrumb();
   recordNav(id);
@@ -893,8 +916,13 @@ diagramNameEl.addEventListener("click", (evt) => {
   if (!c) return;
   const id = c.dataset.id;
   const idx = breadcrumb.findIndex((b) => b.id === id);
+  const prevBreadcrumb = breadcrumb;
   if (idx >= 0) breadcrumb = breadcrumb.slice(0, idx);
-  loadDiagram(id, { push: true, keepBreadcrumb: true });
+  loadDiagram(id, { push: true, keepBreadcrumb: true }).catch((e) => {
+    breadcrumb = prevBreadcrumb; // ancestor gone → restore, don't leak
+    setStatus("couldn't open diagram");
+    console.error(e);
+  });
 });
 
 // ---------- undo / redo ----------
@@ -1022,10 +1050,10 @@ function edgeMidpoint(pa, pb) {
 // World position of the draggable curvature handle for the given edge.
 // Without curvature it lives on the straight anchor midpoint; with curvature
 // it's offset by (ox, oy).
-function edgeHandlePos(edge, pa, pb) {
+function edgeHandlePos(edge, pa, pb, curv = edge.curvature) {
   const mid = edgeMidpoint(pa, pb);
-  if (edge.curvature) {
-    return { x: mid.x + edge.curvature.ox, y: mid.y + edge.curvature.oy };
+  if (curv) {
+    return { x: mid.x + curv.ox, y: mid.y + curv.oy };
   }
   return mid;
 }
@@ -1034,11 +1062,52 @@ function edgeHandlePos(edge, pa, pb) {
 // single control point chosen so the curve passes exactly through the handle
 // at t=0.5. Without curvature: the original cubic with control points pushed
 // perpendicular to each anchor's side (the look we had before A* routing).
-function edgePath(edge, pa, pb) {
-  if (edge.curvature) {
+// Orthogonal (90°) routing for "synthetic" edge style: leave perpendicular to
+// each anchor's side via a short stub, then connect with axis-aligned segments.
+function orthogonalPath(pa, pb, off = 0) {
+  const S = 24; // stub length so edges exit/enter cleanly perpendicular
+  const dir = (s) =>
+    s === "right" ? [1, 0] : s === "left" ? [-1, 0] :
+    s === "bottom" ? [0, 1] : s === "top" ? [0, -1] : [0, 0];
+  const [ax, ay] = dir(pa.side), [bx, by] = dir(pb.side);
+  const a1 = { x: pa.x + ax * S, y: pa.y + ay * S };
+  const b1 = { x: pb.x + bx * S, y: pb.y + by * S };
+  const pts = [pa, a1];
+  const aHoriz = ay === 0, bHoriz = by === 0;
+  // `off` fans parallel edges apart perpendicular to the run. With off=0 the
+  // base route is the natural single-jog "Z"; with off it routes via an
+  // offset cross-run so same-pair parallels (often at equal height) separate.
+  if (aHoriz && bHoriz) {
+    if (off === 0) {
+      const mx = (a1.x + b1.x) / 2;
+      pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+    } else {
+      const my = (a1.y + b1.y) / 2 + off;
+      pts.push({ x: a1.x, y: my }, { x: b1.x, y: my });
+    }
+  } else if (!aHoriz && !bHoriz) {
+    if (off === 0) {
+      const my = (a1.y + b1.y) / 2;
+      pts.push({ x: a1.x, y: my }, { x: b1.x, y: my });
+    } else {
+      const mx = (a1.x + b1.x) / 2 + off;
+      pts.push({ x: mx, y: a1.y }, { x: mx, y: b1.y });
+    }
+  } else if (aHoriz) {
+    pts.push({ x: b1.x, y: a1.y });
+  } else {
+    pts.push({ x: a1.x, y: b1.y });
+  }
+  pts.push(b1, pb);
+  return "M " + pts.map((p) => `${p.x},${p.y}`).join(" L ");
+}
+
+function edgePath(edge, pa, pb, curv = edge.curvature, parOff = 0) {
+  if (diagram.edgeStyle === "synthetic") return orthogonalPath(pa, pb, parOff);
+  if (curv) {
     const mid = edgeMidpoint(pa, pb);
-    const hx = mid.x + edge.curvature.ox;
-    const hy = mid.y + edge.curvature.oy;
+    const hx = mid.x + curv.ox;
+    const hy = mid.y + curv.oy;
     // Quadratic B(t) = (1-t)²·P0 + 2(1-t)t·C + t²·P2. At t=0.5:
     //   B(0.5) = (P0 + 2C + P2) / 4 = H   →   C = 2H − (P0+P2)/2
     const cx = 2 * hx - (pa.x + pb.x) / 2;
@@ -1051,13 +1120,44 @@ function edgePath(edge, pa, pb) {
 function render() {
   edgesLayer.innerHTML = "";
   nodesLayer.innerHTML = "";
+  edgeLabelsLayer.innerHTML = "";
+
+  // Fan out edges that share a node pair so their paths and labels don't stack
+  // on the same straight line. Edges the user has bent (explicit curvature) keep
+  // their own shape and are excluded from the auto-spread.
+  const parIdx = new Map(), parN = new Map();
+  {
+    const groups = new Map();
+    for (const e of diagram.edges) {
+      if (e.curvature) continue;
+      const key = [e.source, e.target].sort().join("|");
+      (groups.get(key) || groups.set(key, []).get(key)).push(e.id);
+    }
+    for (const ids of groups.values())
+      ids.forEach((id, i) => { parIdx.set(id, i); parN.set(id, ids.length); });
+  }
 
   for (const e of diagram.edges) {
     const a = diagram.nodes.find((n) => n.id === e.source);
     const b = diagram.nodes.find((n) => n.id === e.target);
     if (!a || !b) continue;
     const { pa, pb } = anchorsFor(e, a, b);
-    const d = edgePath(e, pa, pb);
+    const synthetic = diagram.edgeStyle === "synthetic";
+    let curv = e.curvature;
+    let parOff = 0; // perpendicular separation for parallel edges (synthetic)
+    const n = parN.get(e.id) || 1;
+    if (n > 1) {
+      const i = parIdx.get(e.id);
+      if (synthetic) {
+        parOff = (i - (n - 1) / 2) * 22; // fan the orthogonal mid-runs apart
+      } else if (!curv) {
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const off = (i - (n - 1) / 2) * 36;
+        curv = { ox: (-dy / len) * off, oy: (dx / len) * off };
+      }
+    }
+    const d = edgePath(e, pa, pb, curv, parOff);
     const isSel = e.id === selectedEdgeId;
     const eg = svg("g", {
       class: "edge-group" + (isSel ? " selected" : ""),
@@ -1073,8 +1173,10 @@ function render() {
       edgeAttrs["marker-end"] = isSel ? "url(#arrow-selected)" : "url(#arrow)";
     }
     eg.appendChild(svg("path", edgeAttrs));
-    if (isSel) {
-      const h = edgeHandlePos(e, pa, pb);
+    // The curvature handle is meaningless for orthogonal edges (the route is
+    // computed), so it's only shown in organic mode.
+    if (isSel && !synthetic) {
+      const h = edgeHandlePos(e, pa, pb, curv);
       eg.appendChild(svg("circle", {
         class: "edge-handle",
         "data-id": e.id,
@@ -1083,13 +1185,21 @@ function render() {
     }
     // Edge label sits on the handle position (midpoint by default, curvature
     // offset when the user has dragged the handle).
+    // Labels live in a layer above the nodes so a label that overlaps a node
+    // (long text, tight gap) stays readable instead of being painted under it.
     if (e.label && !(editing && editing.kind === "edge" && editing.id === e.id)) {
-      const h = edgeHandlePos(e, pa, pb);
+      const h = synthetic ? edgeMidpoint(pa, pb) : edgeHandlePos(e, pa, pb, curv);
+      if (synthetic && parOff) {
+        // Follow the fanned mid-run so parallel labels don't stack.
+        if (pa.side === "left" || pa.side === "right") h.y += parOff;
+        else h.x += parOff;
+      }
       const midX = h.x;
       const midY = h.y;
       const tw = _measureCtx.measureText(e.label).width + 10;
       const th = 16;
-      eg.appendChild(svg("rect", {
+      const lg = svg("g", { class: "edge-label-group" + (isSel ? " selected" : "") });
+      lg.appendChild(svg("rect", {
         class: "edge-label-bg",
         x: midX - tw / 2, y: midY - th / 2,
         width: tw, height: th, rx: 3,
@@ -1099,7 +1209,8 @@ function render() {
         x: midX, y: midY + 4, "text-anchor": "middle",
       });
       lt.textContent = e.label;
-      eg.appendChild(lt);
+      lg.appendChild(lt);
+      edgeLabelsLayer.appendChild(lg);
     }
     edgesLayer.appendChild(eg);
   }
@@ -1202,11 +1313,13 @@ function render() {
   if (editing) positionEditor();
 
   deleteBtn.disabled = selectedIds.size === 0 && selectedEdgeId === null;
+  syncEdgeStyleBtn();
   connectBtn.classList.toggle("active", connecting);
   canvas.classList.toggle("connecting", connecting);
   applyViewport();
   syncPendingEdge();
   syncLasso();
+  drawAlignGuides();
   renderMinimap();
 }
 
@@ -1580,6 +1693,104 @@ navBackBtn.addEventListener("click", navBack);
 navFwdBtn.addEventListener("click", navForward);
 fitViewBtn.addEventListener("click", fitView);
 
+edgeStyleBtn.addEventListener("click", () => {
+  if (!diagram) return;
+  diagram.edgeStyle = diagram.edgeStyle === "synthetic" ? "organic" : "synthetic";
+  save();
+  render();
+});
+
+function syncEdgeStyleBtn() {
+  const synthetic = !!diagram && diagram.edgeStyle === "synthetic";
+  edgeStyleBtn.textContent = synthetic ? "Edges: orthogonal" : "Edges: organic";
+  edgeStyleBtn.classList.toggle("active", synthetic);
+}
+
+// In-memory clipboard for copy/paste. Survives diagram navigation, so a
+// selection can be pasted into another diagram.
+let clipboard = null; // { nodes: [...], edges: [...] }
+
+function copySelection() {
+  if (selectedIds.size === 0) return;
+  const nodes = diagram.nodes
+    .filter((n) => selectedIds.has(n.id))
+    .map((n) => ({ id: n.id, kind: n.kind, position: { ...n.position }, data: { ...n.data } }));
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = diagram.edges
+    .filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => ({ ...e, curvature: e.curvature ? { ...e.curvature } : undefined }));
+  clipboard = { nodes, edges };
+  setStatus(`copied ${nodes.length}`);
+}
+
+function pasteClipboard() {
+  pasteWith(24, 24);
+}
+
+// Pastes the clipboard with its top-left placed at a model position (used by
+// the right-click "Paste here").
+function pasteClipboardAt(modelPos) {
+  if (!clipboard || clipboard.nodes.length === 0) return;
+  const minX = Math.min(...clipboard.nodes.map((n) => n.position.x));
+  const minY = Math.min(...clipboard.nodes.map((n) => n.position.y));
+  pasteWith(modelPos.x - minX, modelPos.y - minY);
+}
+
+function pasteWith(dx, dy) {
+  if (!clipboard || clipboard.nodes.length === 0) return;
+  pushHistory();
+  const idMap = cloneInto(clipboard.nodes, clipboard.edges, dx, dy);
+  selectedIds = new Set(idMap.values());
+  selectedEdgeId = null;
+  save();
+  render();
+  setStatus(`pasted ${clipboard.nodes.length}`);
+}
+
+// Clones the given nodes (offset by dx/dy) plus the edges among them, remapped
+// to the clones, appending them to the current diagram. Returns old→new ids.
+function cloneInto(srcNodes, srcEdges, dx, dy) {
+  const idMap = new Map();
+  for (const n of srcNodes) {
+    const nid = uid();
+    idMap.set(n.id, nid);
+    diagram.nodes.push({
+      id: nid,
+      kind: n.kind,
+      position: { x: n.position.x + dx, y: n.position.y + dy },
+      data: { ...n.data },
+    });
+  }
+  for (const e of srcEdges) {
+    if (idMap.has(e.source) && idMap.has(e.target)) {
+      const ne = { id: uid(), source: idMap.get(e.source), target: idMap.get(e.target) };
+      if (e.label) ne.label = e.label;
+      if (e.sourcePort) ne.sourcePort = e.sourcePort;
+      if (e.targetPort) ne.targetPort = e.targetPort;
+      if (e.curvature) ne.curvature = { ...e.curvature };
+      diagram.edges.push(ne);
+    }
+  }
+  return idMap;
+}
+
+// Clones the selected nodes (offset a little) plus any edges wholly inside the
+// selection, remapped to the clones, then selects the copies. A container's
+// subdiagram link is copied by reference (consistent with the model).
+function duplicateSelection() {
+  if (selectedIds.size === 0) return;
+  pushHistory();
+  const srcNodes = diagram.nodes.filter((n) => selectedIds.has(n.id));
+  const srcEdges = diagram.edges.filter(
+    (e) => selectedIds.has(e.source) && selectedIds.has(e.target),
+  );
+  const idMap = cloneInto(srcNodes, srcEdges, 24, 24);
+  selectedIds = new Set(idMap.values());
+  selectedEdgeId = null;
+  save();
+  render();
+}
+
 function deleteSelected() {
   if (selectedEdgeId === null && selectedIds.size === 0) return;
   pushHistory();
@@ -1921,11 +2132,130 @@ canvas.addEventListener("mousedown", (evt) => {
       dy: p.y - node.position.y,
     });
   }
+  // Precompute alignment candidate lines from the static (non-moving) nodes
+  // once: they don't move during the drag, so rebuilding them (and remeasuring
+  // every node) on each mousemove would be wasted work on large diagrams.
+  const vCand = [], hCand = [], staticBoxes = [];
+  for (const n of diagram.nodes) {
+    if (offsets.has(n.id)) continue;
+    const { w, h } = nodeSize(n);
+    const l = n.position.x, r = l + w, t = n.position.y, b = t + h;
+    for (const x of [l, l + w / 2, r]) vCand.push({ c: x, lo: t, hi: b });
+    for (const y of [t, t + h / 2, b]) hCand.push({ c: y, lo: l, hi: r });
+    staticBoxes.push({ l, r, t, b });
+  }
   // Capture pre-drag snapshot for undo; only commit it to history if the
   // pointer actually moves (a stray click shouldn't pollute the history).
-  dragging = { offsets, moved: false, snapshot: snapshot() };
+  dragging = { offsets, moved: false, snapshot: snapshot(), vCand, hCand, staticBoxes };
   render();
 });
+
+// While dragging, snap the moving selection into alignment with static nodes
+// (left/center/right, top/center/bottom), Figma-style. Mutates the moving
+// nodes' positions by a small delta and records guide lines for render().
+function snapDraggingToGuides() {
+  alignGuides = [];
+  if (!dragging) return;
+  const movingIds = new Set(dragging.offsets.keys());
+  const moving = diagram.nodes.filter((n) => movingIds.has(n.id));
+  if (moving.length === 0) return;
+
+  let mMinX = Infinity, mMinY = Infinity, mMaxX = -Infinity, mMaxY = -Infinity;
+  for (const n of moving) {
+    const { w, h } = nodeSize(n);
+    mMinX = Math.min(mMinX, n.position.x);
+    mMinY = Math.min(mMinY, n.position.y);
+    mMaxX = Math.max(mMaxX, n.position.x + w);
+    mMaxY = Math.max(mMaxY, n.position.y + h);
+  }
+  const mCx = (mMinX + mMaxX) / 2, mCy = (mMinY + mMaxY) / 2;
+  const thr = SNAP_PX / (diagram.viewport.zoom || 1);
+
+  // Candidate alignment lines from static nodes, precomputed at drag start.
+  const vCand = dragging.vCand, hCand = dragging.hCand;
+
+  let bestV = null;
+  for (const mx of [mMinX, mCx, mMaxX]) {
+    for (const cand of vCand) {
+      const d = Math.abs(mx - cand.c);
+      if (d <= thr && (!bestV || d < bestV.d)) bestV = { d, delta: cand.c - mx, ...cand };
+    }
+  }
+  let bestH = null;
+  for (const my of [mMinY, mCy, mMaxY]) {
+    for (const cand of hCand) {
+      const d = Math.abs(my - cand.c);
+      if (d <= thr && (!bestH || d < bestH.d)) bestH = { d, delta: cand.c - my, ...cand };
+    }
+  }
+
+  let dx = bestV ? bestV.delta : 0;
+  let dy = bestH ? bestH.delta : 0;
+
+  // Equidistant-spacing snap (single-node drag only): center the node in the
+  // gap between the two nearest static nodes sharing its row/column, on any
+  // axis alignment didn't already claim. Figma's "smart distribute".
+  let spacingGuides = [];
+  if (moving.length === 1) {
+    if (!bestV) {
+      const s = spacingSnap(mMinX, mMaxX, mMinY + dy, mMaxY + dy, "x", thr);
+      if (s) { dx = s.delta; spacingGuides = spacingGuides.concat(s.guides); }
+    }
+    if (!bestH) {
+      const s = spacingSnap(mMinY, mMaxY, mMinX + dx, mMaxX + dx, "y", thr);
+      if (s) { dy = s.delta; spacingGuides = spacingGuides.concat(s.guides); }
+    }
+  }
+
+  if (dx || dy) for (const n of moving) { n.position.x += dx; n.position.y += dy; }
+
+  if (bestV) {
+    alignGuides.push({ x1: bestV.c, y1: Math.min(mMinY + dy, bestV.lo), x2: bestV.c, y2: Math.max(mMaxY + dy, bestV.hi) });
+  }
+  if (bestH) {
+    alignGuides.push({ x1: Math.min(mMinX + dx, bestH.lo), y1: bestH.c, x2: Math.max(mMaxX + dx, bestH.hi), y2: bestH.c });
+  }
+  for (const g of spacingGuides) alignGuides.push(g);
+}
+
+// Finds the equidistant ("centered between two") snap for a single dragged node
+// along `axis`. minA/maxA = the node's span on that axis (pre-snap); perpLo/
+// perpHi = its extent on the other axis, so only static nodes sharing the
+// row/column count. Returns { delta, guides } or null.
+function spacingSnap(minA, maxA, perpLo, perpHi, axis, thr) {
+  const size = maxA - minA;
+  let A = null, C = null; // nearest in-band static on the low / high side
+  for (const bx of dragging.staticBoxes) {
+    const lo = axis === "x" ? bx.l : bx.t;
+    const hi = axis === "x" ? bx.r : bx.b;
+    const pLo = axis === "x" ? bx.t : bx.l;
+    const pHi = axis === "x" ? bx.b : bx.r;
+    if (pHi <= perpLo || pLo >= perpHi) continue; // not in the same band
+    if (hi <= minA && (!A || hi > A.hi)) A = { lo, hi };
+    if (lo >= maxA && (!C || lo < C.lo)) C = { lo, hi };
+  }
+  if (!A || !C) return null;
+  const free = C.lo - A.hi;
+  if (free < size) return null; // no room to center between them
+  const targetMin = A.hi + (free - size) / 2;
+  const delta = targetMin - minA;
+  if (Math.abs(delta) > thr) return null;
+  const mid = (perpLo + perpHi) / 2;
+  const seg = (s, e) => axis === "x"
+    ? { spacing: true, x1: s, y1: mid, x2: e, y2: mid }
+    : { spacing: true, x1: mid, y1: s, x2: mid, y2: e };
+  return { delta, guides: [seg(A.hi, targetMin), seg(targetMin + size, C.lo)] };
+}
+
+function drawAlignGuides() {
+  guidesLayer.innerHTML = "";
+  for (const g of alignGuides) {
+    guidesLayer.appendChild(svg("line", {
+      class: g.spacing ? "align-guide spacing-guide" : "align-guide",
+      x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2,
+    }));
+  }
+}
 
 window.addEventListener("mousemove", (evt) => {
   if (panning) {
@@ -1966,6 +2296,7 @@ window.addEventListener("mousemove", (evt) => {
     node.position.x = p.x - off.dx;
     node.position.y = p.y - off.dy;
   }
+  snapDraggingToGuides();
   dragging.moved = true;
   render();
 });
@@ -2041,6 +2372,10 @@ window.addEventListener("mouseup", (evt) => {
     save();
   }
   dragging = null;
+  if (alignGuides.length) {
+    alignGuides = [];
+    render();
+  }
 });
 
 canvas.addEventListener("wheel", (evt) => {
@@ -2106,6 +2441,28 @@ window.addEventListener("keydown", (evt) => {
     redo();
     return;
   }
+  if (mod && key === "a") {
+    evt.preventDefault();
+    selectedIds = new Set(diagram.nodes.map((n) => n.id));
+    selectedEdgeId = null;
+    render();
+    return;
+  }
+  if (mod && key === "d") {
+    evt.preventDefault();
+    duplicateSelection();
+    return;
+  }
+  if (mod && key === "c" && selectedIds.size > 0) {
+    evt.preventDefault();
+    copySelection();
+    return;
+  }
+  if (mod && key === "v" && clipboard) {
+    evt.preventDefault();
+    pasteClipboard();
+    return;
+  }
 
   // Alt+←/→ walk the navigation history; F fits everything in view.
   if (evt.altKey && evt.key === "ArrowLeft") {
@@ -2121,6 +2478,27 @@ window.addEventListener("keydown", (evt) => {
   if (!mod && !evt.altKey && key === "f") {
     evt.preventDefault();
     fitView();
+    return;
+  }
+
+  // Arrow keys nudge the selected nodes (Shift = 10px steps). A burst of
+  // nudges collapses into a single undo step via a short debounce.
+  if (!mod && !evt.altKey && selectedIds.size > 0 &&
+      (evt.key === "ArrowUp" || evt.key === "ArrowDown" ||
+       evt.key === "ArrowLeft" || evt.key === "ArrowRight")) {
+    evt.preventDefault();
+    const step = evt.shiftKey ? 10 : 1;
+    const dx = evt.key === "ArrowLeft" ? -step : evt.key === "ArrowRight" ? step : 0;
+    const dy = evt.key === "ArrowUp" ? -step : evt.key === "ArrowDown" ? step : 0;
+    if (nudgeHistoryTimer === null) pushHistory();
+    clearTimeout(nudgeHistoryTimer);
+    nudgeHistoryTimer = setTimeout(() => { nudgeHistoryTimer = null; }, 600);
+    for (const id of selectedIds) {
+      const n = diagram.nodes.find((x) => x.id === id);
+      if (n) { n.position.x += dx; n.position.y += dy; }
+    }
+    save();
+    render();
     return;
   }
 
@@ -2234,8 +2612,18 @@ sidebarListEl.addEventListener("click", async (evt) => {
   const path = li.dataset.path;
   if (path === sidebarActivePath) return; // already here, on this path
   const ids = path.split("/");
+  const prevBreadcrumb = breadcrumb;
   breadcrumb = ids.slice(0, -1).map((pid) => ({ id: pid, name: (sidebarById.get(pid) || {}).name || "…" }));
-  await loadDiagram(ids[ids.length - 1], { push: true, keepBreadcrumb: true });
+  try {
+    await loadDiagram(ids[ids.length - 1], { push: true, keepBreadcrumb: true });
+  } catch (e) {
+    // The diagram was likely deleted elsewhere; restore state and resync the
+    // sidebar so the stale entry disappears, instead of leaking a rejection.
+    breadcrumb = prevBreadcrumb;
+    setStatus("couldn't open diagram");
+    console.error(e);
+    await refreshSidebar();
+  }
 });
 
 // Double-click a name to rename in place.
@@ -2400,21 +2788,27 @@ function tidyUp() {
   const byId = new Map(diagram.nodes.map((n) => [n.id, n]));
   const inAdj = new Map();
   const outAdj = new Map();
+  const deg = new Map();
   for (const n of diagram.nodes) {
     inAdj.set(n.id, []);
     outAdj.set(n.id, []);
+    deg.set(n.id, 0);
   }
   for (const e of diagram.edges) {
     if (byId.has(e.source) && byId.has(e.target)) {
       outAdj.get(e.source).push(e.target);
       inAdj.get(e.target).push(e.source);
+      deg.set(e.source, deg.get(e.source) + 1);
+      deg.set(e.target, deg.get(e.target) + 1);
     }
   }
 
+  // Longest-path levels over connected nodes; orphans (no edges) are excluded
+  // and parked in a row below so they don't crowd column 0.
   const level = new Map();
   const queue = [];
   for (const n of diagram.nodes) {
-    if (inAdj.get(n.id).length === 0) {
+    if (deg.get(n.id) > 0 && inAdj.get(n.id).length === 0) {
       level.set(n.id, 0);
       queue.push(n.id);
     }
@@ -2429,23 +2823,76 @@ function tidyUp() {
       }
     }
   }
-  // Anything left (pure cycles) → level 0.
+  // Connected nodes left unleveled (pure cycles) → level 0.
   for (const n of diagram.nodes) {
-    if (!level.has(n.id)) level.set(n.id, 0);
+    if (deg.get(n.id) > 0 && !level.has(n.id)) level.set(n.id, 0);
   }
 
   const cols = new Map();
+  const orphans = [];
+  let maxLevel = 0;
   for (const n of diagram.nodes) {
+    if (deg.get(n.id) === 0) {
+      orphans.push(n);
+      continue;
+    }
     const lvl = level.get(n.id);
     if (!cols.has(lvl)) cols.set(lvl, []);
     cols.get(lvl).push(n);
+    if (lvl > maxLevel) maxLevel = lvl;
+  }
+
+  // Crossing reduction: alternate median sweeps reorder each column by the
+  // median rank of its neighbors in the adjacent column (Sugiyama-style).
+  const posInCol = new Map();
+  for (let lvl = 0; lvl <= maxLevel; lvl++) {
+    const col = cols.get(lvl) || [];
+    col.forEach((n, p) => posInCol.set(n.id, p));
+  }
+  const median = (neigh) => {
+    const ps = neigh.map((id) => posInCol.get(id)).filter((p) => p !== undefined);
+    if (ps.length === 0) return -1;
+    ps.sort((a, b) => a - b);
+    const m = ps.length;
+    return m % 2 ? ps[(m - 1) / 2] : (ps[m / 2 - 1] + ps[m / 2]) / 2;
+  };
+  const reorder = (lvl, useIn) => {
+    const col = cols.get(lvl);
+    if (!col) return;
+    const key = new Map();
+    for (const n of col) {
+      let med = median(useIn ? inAdj.get(n.id) : outAdj.get(n.id));
+      if (med < 0) med = posInCol.get(n.id); // no neighbors → keep spot
+      key.set(n.id, med);
+    }
+    col.sort((a, b) => key.get(a.id) - key.get(b.id));
+    col.forEach((n, p) => posInCol.set(n.id, p));
+  };
+  for (let s = 0; s < 4; s++) {
+    if (s % 2 === 0) {
+      for (let lvl = 1; lvl <= maxLevel; lvl++) reorder(lvl, true);
+    } else {
+      for (let lvl = maxLevel - 1; lvl >= 0; lvl--) reorder(lvl, false);
+    }
+  }
+
+  // Label-aware spacing: a forward edge's label sits between its columns, so
+  // widen that gap to fit the widest label crossing it.
+  const labelGap = new Map();
+  for (const e of diagram.edges) {
+    const ls = level.get(e.source);
+    const lt = level.get(e.target);
+    if (ls !== undefined && lt === ls + 1 && e.label) {
+      const w = _measureCtx.measureText(e.label).width + 24;
+      if (w > (labelGap.get(ls) || 0)) labelGap.set(ls, w);
+    }
   }
 
   pushHistory();
   const GAP_X = 80;
   const GAP_Y = 30;
   let cursorX = 0;
-  const maxLevel = Math.max(...cols.keys());
+  let maxBottom = -Infinity;
   for (let lvl = 0; lvl <= maxLevel; lvl++) {
     const colNodes = cols.get(lvl);
     if (!colNodes || colNodes.length === 0) continue;
@@ -2460,8 +2907,19 @@ function tidyUp() {
       n.position.x = cursorX + (colW - s.w) / 2;
       n.position.y = cursorY;
       cursorY += s.h + GAP_Y;
+      if (n.position.y + s.h > maxBottom) maxBottom = n.position.y + s.h;
     }
-    cursorX += colW + GAP_X;
+    cursorX += colW + Math.max(GAP_X, labelGap.get(lvl) || 0);
+  }
+
+  if (orphans.length) {
+    const orphanY = maxBottom === -Infinity ? 0 : maxBottom + GAP_Y * 2;
+    let x = 0;
+    for (const n of orphans) {
+      n.position.x = x;
+      n.position.y = orphanY;
+      x += nodeSize(n).w + GAP_X;
+    }
   }
 
   save();
@@ -2568,6 +3026,7 @@ function emptyMenuItems(modelPos) {
       (role) => addPortNode(role, modelPos.x, modelPos.y),
     ),
     { separator: true },
+    ...(clipboard ? [{ label: "Paste here", action: () => pasteClipboardAt(modelPos) }] : []),
     { label: "Tidy up", action: tidyUp },
   ];
 }
@@ -2659,6 +3118,8 @@ function singleNodeMenuItems(id) {
     { separator: true },
     sub,
     { separator: true },
+    { label: "Copy", action: () => copySelection() },
+    { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete", action: () => deleteSelected() },
   ];
 }
@@ -2729,7 +3190,7 @@ function multiNodesMenuItems() {
   // Naming convention: "Vertical · …" means "line them up on a vertical line"
   // (same X, varied Y). "Horizontal · …" means line them up on a horizontal
   // line (same Y, varied X).
-  return [
+  const items = [
     { label: "Vertical · left",   action: () => alignSelected("x", "min") },
     { label: "Vertical · center", action: () => alignSelected("x", "center") },
     { label: "Vertical · right",  action: () => alignSelected("x", "max") },
@@ -2738,10 +3199,48 @@ function multiNodesMenuItems() {
     { label: "Horizontal · center", action: () => alignSelected("y", "center") },
     { label: "Horizontal · bottom", action: () => alignSelected("y", "max") },
     { separator: true },
+  ];
+  if (selectedIds.size >= 3) {
+    items.push(
+      { label: "Distribute · horizontally", action: () => distributeSelected("x") },
+      { label: "Distribute · vertically",   action: () => distributeSelected("y") },
+      { separator: true },
+    );
+  }
+  items.push(
     { label: "Color ▸", submenu: () => colorMenuItems(new Set(selectedIds)) },
     { separator: true },
+    { label: "Copy", action: () => copySelection() },
+    { label: "Duplicate", action: () => duplicateSelection() },
     { label: "Delete all", action: () => deleteSelected() },
-  ];
+  );
+  return items;
+}
+
+// Spreads 3+ selected nodes so the gaps between them along `axis` are equal,
+// keeping the outermost two fixed (standard "distribute spacing").
+function distributeSelected(axis) {
+  const nodes = [...selectedIds]
+    .map((id) => diagram.nodes.find((n) => n.id === id))
+    .filter(Boolean);
+  if (nodes.length < 3) return;
+  const sizeOf = (n) => (axis === "x" ? nodeSize(n).w : nodeSize(n).h);
+  const posOf = (n) => (axis === "x" ? n.position.x : n.position.y);
+  const setPos = (n, v) => { if (axis === "x") n.position.x = v; else n.position.y = v; };
+  nodes.sort((a, b) => posOf(a) - posOf(b));
+  const start = posOf(nodes[0]);
+  const end = posOf(nodes[nodes.length - 1]) + sizeOf(nodes[nodes.length - 1]);
+  const totalSize = nodes.reduce((s, n) => s + sizeOf(n), 0);
+  const gap = (end - start - totalSize) / (nodes.length - 1);
+  pushHistory();
+  let cursor = start;
+  for (const n of nodes) {
+    setPos(n, cursor);
+    cursor += sizeOf(n) + gap;
+  }
+  save();
+  render();
+  setStatus("distributed");
 }
 
 canvas.addEventListener("contextmenu", (evt) => {
@@ -2851,12 +3350,16 @@ async function importJSONFile(file) {
   const name = (typeof raw.name === "string" && raw.name.trim())
     ? raw.name.trim()
     : file.name.replace(/\.json$/i, "") || "Imported";
+  // Drop edges whose endpoints aren't in the file: the server rejects unknown
+  // references, so one stray edge would otherwise fail the whole import.
+  const nodeIds = new Set(raw.nodes.map((n) => n.id));
+  const edges = raw.edges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
   try {
     const created = await api("POST", "/api/diagrams", { name });
     await api("PUT", `/api/diagrams/${created.id}`, {
       name,
       nodes: raw.nodes,
-      edges: raw.edges,
+      edges,
       viewport: raw.viewport || { x: 0, y: 0, zoom: 1 },
     });
     await refreshSidebar();
@@ -2898,6 +3401,19 @@ function logExportError(e) {
 }
 
 // Zoom/pan so the whole diagram fits the canvas — the "see everything" view.
+// Coerce a persisted viewport into sane bounds. A hand-edited or corrupt file
+// can carry zoom=0 / NaN / missing fields, which would propagate NaN/Infinity
+// into every model↔screen conversion (the minimap divides by zoom). Heal at the
+// load boundary so the rest of the code can trust the viewport.
+function sanitizeViewport(d) {
+  const v = (d.viewport = d.viewport || { x: 0, y: 0, zoom: 1 });
+  v.zoom = Number.isFinite(v.zoom) && v.zoom > 0
+    ? Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom))
+    : 1;
+  if (!Number.isFinite(v.x)) v.x = 0;
+  if (!Number.isFinite(v.y)) v.y = 0;
+}
+
 function fitView() {
   if (!diagram) return;
   const b = nodesBBox();

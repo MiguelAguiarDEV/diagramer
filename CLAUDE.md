@@ -55,6 +55,21 @@ make test-e2e   # Playwright (installs deps + chromium, builds, drives a browser
 ./diagramer -mcp -data ./data   # run as MCP server over stdio
 ```
 
+With no subcommand `./diagramer` runs the HTTP server (`-addr`, `-data`) or, with
+`-mcp`, the MCP server. It also has one-shot CLI subcommands that operate
+directly on the data dir (no server) for scripting — put `-data` before the
+positional args:
+
+```sh
+./diagramer create -data ./data "My Diagram"   # prints the new id
+./diagramer import -data ./data in.json        # create from a JSON file
+./diagramer list   -data ./data                # id, name, counts, kind
+./diagramer get    -data ./data <id>           # full diagram as JSON
+./diagramer layout -data ./data <id>           # auto-layout (tidy)
+./diagramer export -data ./data <id> out.json  # write JSON (omit path → stdout)
+./diagramer delete -data ./data <id>
+```
+
 E2E runs a fresh `go run` against a throwaway data dir. Where the Playwright
 CDN is blocked, point `PW_CHROMIUM` at a pre-installed chromium binary.
 
@@ -134,12 +149,20 @@ port: drag from a port disc, or drop a connection onto one — stored as
 Inside a subdiagram, create interface nodes via the Add menu → Interface port,
 or mark/clear any node's role from its context menu.
 
-## MCP tools (12)
+## MCP tools (15)
 
 `list_diagrams`, `get_diagram`, `create_diagram`, `rename_diagram`,
 `delete_diagram`, `add_node`, `update_node`, `delete_node`, `add_edge`,
-`update_edge`, `delete_edge`, `create_subdiagram`. Node tools accept
-`fill`/`stroke`; `update_node` also accepts `subdiagram_id`.
+`update_edge`, `delete_edge`, `add_graph`, `create_subdiagram`, `auto_layout`,
+`set_edge_style`. Node tools accept `fill`/`stroke`; `update_node` also accepts
+`subdiagram_id`. `add_node`'s `x`/`y` are optional (auto-placed beside existing
+nodes when omitted). `add_graph` builds a whole subgraph in one call — nodes
+carry a caller-chosen `key`, edges reference nodes by key (new) or id
+(existing); the efficient way to construct a diagram (pair with `auto_layout`).
+`auto_layout` tidies a diagram into dependency columns server-side — the
+layered layout mirrors the frontend's "Tidy up" (`internal/diagrams/layout.go`).
+`set_edge_style` switches a diagram between `organic` (bezier) and `synthetic`
+(orthogonal) edge routing.
 
 ## Principles
 

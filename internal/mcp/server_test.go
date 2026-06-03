@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -82,6 +83,7 @@ func TestToolsAreRegistered(t *testing.T) {
 		"list_diagrams", "get_diagram", "create_diagram", "rename_diagram",
 		"delete_diagram", "add_node", "update_node", "delete_node",
 		"add_edge", "update_edge", "delete_edge", "create_subdiagram",
+		"auto_layout", "set_edge_style", "add_graph",
 	}
 	for _, w := range want {
 		if !got[w] {
@@ -212,6 +214,51 @@ func TestDeleteEdgeKeepsNodes(t *testing.T) {
 	}
 }
 
+// TestAutoLayoutAndAutoPlace covers the AI ergonomics: add_node without x/y
+// auto-places beside existing content, and auto_layout arranges a dependency
+// chain into left-to-right columns.
+func TestAutoLayoutAndAutoPlace(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Flow"}).Diagram.ID
+
+	// First node, no coords → origin. Second node, no coords → to its right.
+	a := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": id, "label": "A"}).ID
+	b := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": id, "label": "B"}).ID
+
+	pos := func() map[string]diagrams.Position {
+		g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+		m := map[string]diagrams.Position{}
+		for _, n := range g.Diagram.Nodes {
+			m[n.ID] = n.Position
+		}
+		return m
+	}
+	p := pos()
+	if p[a].X != 0 || p[a].Y != 0 {
+		t.Errorf("first auto-placed node = %+v, want origin", p[a])
+	}
+	if p[b].X <= p[a].X {
+		t.Errorf("second auto-placed node x=%v, want right of first x=%v", p[b].X, p[a].X)
+	}
+
+	// A third node with explicit coords placed far away, then a chain A→B→C.
+	c := callTool[idOutput](t, cs, "add_node", map[string]any{
+		"diagram_id": id, "label": "C", "x": -900.0, "y": 700.0,
+	}).ID
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": a, "target": b})
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": b, "target": c})
+
+	// Tidy: columns must increase left-to-right with dependency depth.
+	out := callTool[diagramOutput](t, cs, "auto_layout", map[string]any{"id": id})
+	if out.Diagram == nil {
+		t.Fatal("auto_layout returned nil diagram")
+	}
+	p = pos()
+	if !(p[a].X < p[b].X && p[b].X < p[c].X) {
+		t.Errorf("auto_layout columns not ordered: A=%v B=%v C=%v", p[a].X, p[b].X, p[c].X)
+	}
+}
+
 // TestSubdiagramComposition mirrors how an AI builds nested architecture:
 // create a container node, give it a subdiagram, then populate that subdiagram
 // using its own ID.
@@ -298,5 +345,168 @@ func TestErrorsOnMissingEntities(t *testing.T) {
 	})
 	if err == nil && !res.IsError {
 		t.Error("update_node with unknown node_id: expected error, got success")
+	}
+
+	// auto_layout on a missing diagram must error too.
+	res, err = cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "auto_layout",
+		Arguments: map[string]any{"id": "nope"},
+	})
+	if err == nil && !res.IsError {
+		t.Error("auto_layout on missing diagram: expected error, got success")
+	}
+}
+
+// TestAutoLayoutToolEdges exercises the auto_layout tool on awkward inputs and
+// add_node with a partial coordinate, the way a careless AI client might.
+func TestAutoLayoutToolEdges(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Cyclic"}).Diagram.ID
+
+	// add_node with only x given (y omitted) must still place the node.
+	only := callTool[idOutput](t, cs, "add_node", map[string]any{
+		"diagram_id": id, "label": "Only X", "x": 123.0,
+	}).ID
+	b := callTool[idOutput](t, cs, "add_node", map[string]any{"diagram_id": id, "label": "B"}).ID
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	for _, n := range g.Diagram.Nodes {
+		if n.ID == only && n.Position.X != 123 {
+			t.Errorf("add_node honored x=123 but got %v", n.Position.X)
+		}
+	}
+
+	// A 2-cycle (a→b, b→a) — no roots. auto_layout must not hang or error.
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": only, "target": b})
+	callTool[idOutput](t, cs, "add_edge", map[string]any{"diagram_id": id, "source": b, "target": only})
+	out := callTool[diagramOutput](t, cs, "auto_layout", map[string]any{"id": id})
+	if out.Diagram == nil || len(out.Diagram.Nodes) != 2 {
+		t.Fatalf("auto_layout on a cycle returned %+v", out.Diagram)
+	}
+}
+
+// If an AI client dispatches tool calls in parallel (common with parallel tool
+// use), concurrent add_node on the same diagram must not lose nodes. Each does
+// Get→append→Update; if that read-modify-write isn't serialized, writes clobber
+// each other.
+func TestConcurrentAddNodeNoLostUpdate(t *testing.T) {
+	cs := newTestSession(t)
+	ctx := context.Background()
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Parallel"}).Diagram.ID
+
+	const N = 30
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _ = cs.CallTool(ctx, &mcpsdk.CallToolParams{
+				Name:      "add_node",
+				Arguments: map[string]any{"diagram_id": id, "label": fmt.Sprintf("n%d", i)},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if len(g.Diagram.Nodes) != N {
+		t.Errorf("lost-update: expected %d nodes after concurrent add_node, got %d", N, len(g.Diagram.Nodes))
+	}
+}
+
+func TestSetEdgeStyleTool(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Styled"}).Diagram.ID
+
+	out := callTool[diagramOutput](t, cs, "set_edge_style", map[string]any{"diagram_id": id, "style": "synthetic"})
+	if out.Diagram == nil || out.Diagram.EdgeStyle != "synthetic" {
+		t.Fatalf("set synthetic failed: %+v", out.Diagram)
+	}
+	// Round-trips on read.
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if g.Diagram.EdgeStyle != "synthetic" {
+		t.Errorf("edgeStyle not persisted: %q", g.Diagram.EdgeStyle)
+	}
+	// "organic" normalizes back to empty (the omitempty default).
+	out = callTool[diagramOutput](t, cs, "set_edge_style", map[string]any{"diagram_id": id, "style": "organic"})
+	if out.Diagram.EdgeStyle != "" {
+		t.Errorf("organic should clear edgeStyle, got %q", out.Diagram.EdgeStyle)
+	}
+	// An invalid style is a tool error, not a silent default.
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name:      "set_edge_style",
+		Arguments: map[string]any{"diagram_id": id, "style": "zigzag"},
+	})
+	if err == nil && !res.IsError {
+		t.Error("invalid style should error")
+	}
+}
+
+func TestAddGraphBuildsInOneCall(t *testing.T) {
+	cs := newTestSession(t)
+	id := callTool[diagramOutput](t, cs, "create_diagram", map[string]any{"name": "Graph"}).Diagram.ID
+
+	out := callTool[struct {
+		Keys      map[string]string `json:"keys"`
+		NodeCount int               `json:"nodeCount"`
+		EdgeCount int               `json:"edgeCount"`
+	}](t, cs, "add_graph", map[string]any{
+		"diagram_id": id,
+		"nodes": []map[string]any{
+			{"key": "web", "kind": "frontend", "label": "Web"},
+			{"key": "api", "kind": "backend", "label": "API"},
+			{"key": "db", "kind": "database", "label": "DB"},
+		},
+		"edges": []map[string]any{
+			{"source": "web", "target": "api", "label": "http"},
+			{"source": "api", "target": "db", "label": "sql"},
+		},
+	})
+	if out.NodeCount != 3 || out.EdgeCount != 2 {
+		t.Fatalf("counts: %d nodes / %d edges", out.NodeCount, out.EdgeCount)
+	}
+	if len(out.Keys) != 3 || out.Keys["web"] == "" || out.Keys["db"] == "" {
+		t.Fatalf("keys not mapped: %+v", out.Keys)
+	}
+
+	g := callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if len(g.Diagram.Nodes) != 3 || len(g.Diagram.Edges) != 2 {
+		t.Fatalf("persisted %d nodes / %d edges", len(g.Diagram.Nodes), len(g.Diagram.Edges))
+	}
+	// Edges were remapped from keys to the created ids.
+	want := map[string]bool{out.Keys["web"] + "->" + out.Keys["api"]: true, out.Keys["api"] + "->" + out.Keys["db"]: true}
+	for _, e := range g.Diagram.Edges {
+		if !want[e.Source+"->"+e.Target] {
+			t.Errorf("unexpected edge %s -> %s", e.Source, e.Target)
+		}
+	}
+
+	// An edge can also reference an existing node id (not just a key).
+	out2 := callTool[struct {
+		Keys      map[string]string `json:"keys"`
+		EdgeCount int               `json:"edgeCount"`
+	}](t, cs, "add_graph", map[string]any{
+		"diagram_id": id,
+		"nodes":      []map[string]any{{"key": "cache", "kind": "cache", "label": "Cache"}},
+		"edges":      []map[string]any{{"source": "cache", "target": out.Keys["db"]}},
+	})
+	if out2.EdgeCount != 1 {
+		t.Fatalf("mixed key/id edge count: %d", out2.EdgeCount)
+	}
+	g = callTool[diagramOutput](t, cs, "get_diagram", map[string]any{"id": id})
+	if len(g.Diagram.Nodes) != 4 || len(g.Diagram.Edges) != 3 {
+		t.Fatalf("after second add_graph: %d nodes / %d edges", len(g.Diagram.Nodes), len(g.Diagram.Edges))
+	}
+
+	// A dangling reference (unknown key/id) must fail the whole call.
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "add_graph",
+		Arguments: map[string]any{
+			"diagram_id": id,
+			"nodes":      []map[string]any{{"key": "x", "label": "X"}},
+			"edges":      []map[string]any{{"source": "x", "target": "ghost"}},
+		},
+	})
+	if err == nil && !res.IsError {
+		t.Error("add_graph with a dangling edge ref should error")
 	}
 }

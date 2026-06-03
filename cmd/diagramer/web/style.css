@@ -34,7 +34,7 @@
   --connect: #f59e0b;
   --edge: #5b626d;
   --edge-hover: #818cf8;
-  --edge-label-bg: #0c0e13;
+  --edge-label-bg: #181b22;
   --handle-fill: #ffffff;
   --dot: #1b1f27;
   --danger: #f05252;
@@ -79,7 +79,7 @@
   --connect: #d98324;
   --edge: #b39e78;
   --edge-hover: #c87f4d;
-  --edge-label-bg: #f6efe1;
+  --edge-label-bg: #fbf5ea;
   --handle-fill: #fffaf0;
   --dot: #e7dcc4;
   --danger: #c0492f;
@@ -606,11 +606,11 @@ main {
 }
 .edge-label-bg {
   fill: var(--edge-label-bg);
-  stroke: var(--border);
+  stroke: var(--node-stroke);
   stroke-width: 1;
   pointer-events: none;
 }
-.edge-group.selected .edge-label-bg { stroke: var(--accent); }
+.edge-label-group.selected .edge-label-bg { stroke: var(--accent); }
 
 .pending-edge {
   stroke: var(--edge-hover);
@@ -678,4 +678,22 @@ main {
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+
+/* Magnetic alignment guides shown while dragging (Figma-style). */
+.align-guide {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+/* Equidistant-spacing indicators (the two equal gaps), distinct from the
+   alignment guides: solid and a touch heavier. */
+.spacing-guide {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+  stroke-width: 2;
+  opacity: 0.85;
 }

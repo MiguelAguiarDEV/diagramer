@@ -13,7 +13,11 @@ type Diagram struct {
 	// so the UI lists it under the components library instead of the top-level
 	// diagrams. It's only a role/category — any diagram can be used as a
 	// subdiagram regardless.
-	Component bool      `json:"component,omitempty"`
+	Component bool `json:"component,omitempty"`
+	// EdgeStyle selects how connections are drawn: "" / "organic" = flowing
+	// bezier (default), "synthetic" = orthogonal 90° routing (block-diagram /
+	// n8n style). A per-diagram display preference.
+	EdgeStyle string    `json:"edgeStyle,omitempty"`
 	Viewport  Viewport  `json:"viewport"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

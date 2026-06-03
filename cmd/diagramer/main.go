@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,6 +17,18 @@ import (
 )
 
 func main() {
+	// One-shot CLI subcommands operate directly on the data dir (no server).
+	// Anything else (or no args) falls through to running the server.
+	if len(os.Args) > 1 {
+		if _, ok := cliCommands[os.Args[1]]; ok {
+			if err := runCLI(os.Stdout, os.Args[1], os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address (host:port)")
 	dataDir := flag.String("data", "./data", "directory where diagrams are stored")
 	mcp := flag.Bool("mcp", false, "run as an MCP server over stdio (no HTTP)")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,6 +17,12 @@ type Server struct {
 	srv    *mcpsdk.Server
 	svc    diagrams.Service
 	logger *slog.Logger
+	// writeMu serializes tool handlers that do a read-modify-write across two
+	// service calls (Get then Update). The service's own lock only makes each
+	// call atomic, not the pair — so without this, parallel tool calls (an AI
+	// client emitting concurrent tool_use blocks) race on the same diagram and
+	// silently drop each other's changes (e.g. concurrent add_node loses nodes).
+	writeMu sync.Mutex
 }
 
 // New builds an MCP server backed by svc and registers all tools.
@@ -70,14 +77,14 @@ type renameInput struct {
 }
 
 type addNodeInput struct {
-	DiagramID string  `json:"diagram_id" jsonschema:"diagram ID"`
-	Kind      string  `json:"kind,omitempty" jsonschema:"shape kind: rect, circle, ellipse, rhombus, tri-up, tri-down, database, backend, frontend, queue, cache, user, cloud. Empty = rect."`
-	Label     string  `json:"label,omitempty" jsonschema:"label text (optional)"`
-	X         float64 `json:"x" jsonschema:"x position in model coords"`
-	Y         float64 `json:"y" jsonschema:"y position in model coords"`
-	Fill      string  `json:"fill,omitempty" jsonschema:"fill color as a CSS hex like #13315c (optional)"`
-	Stroke    string  `json:"stroke,omitempty" jsonschema:"border color as a CSS hex like #3b82f6 (optional)"`
-	Port      string  `json:"port,omitempty" jsonschema:"mark as this diagram's interface so it surfaces as a port on a container: 'in' (entry/left), 'out' (return/right), or 'dep' (dependency/top, e.g. a DB or API). Optional."`
+	DiagramID string   `json:"diagram_id" jsonschema:"diagram ID"`
+	Kind      string   `json:"kind,omitempty" jsonschema:"shape kind: rect, circle, ellipse, rhombus, tri-up, tri-down, database, backend, frontend, queue, cache, user, cloud. Empty = rect."`
+	Label     string   `json:"label,omitempty" jsonschema:"label text (optional)"`
+	X         *float64 `json:"x,omitempty" jsonschema:"x position in model coords (optional; omit to auto-place beside existing nodes)"`
+	Y         *float64 `json:"y,omitempty" jsonschema:"y position in model coords (optional; omit to auto-place beside existing nodes)"`
+	Fill      string   `json:"fill,omitempty" jsonschema:"fill color as a CSS hex like #13315c (optional)"`
+	Stroke    string   `json:"stroke,omitempty" jsonschema:"border color as a CSS hex like #3b82f6 (optional)"`
+	Port      string   `json:"port,omitempty" jsonschema:"mark as this diagram's interface so it surfaces as a port on a container: 'in' (entry/left), 'out' (return/right), or 'dep' (dependency/top, e.g. a DB or API). Optional."`
 }
 
 type idOutput struct {
@@ -85,16 +92,21 @@ type idOutput struct {
 }
 
 type updateNodeInput struct {
-	DiagramID string   `json:"diagram_id" jsonschema:"diagram ID"`
-	NodeID    string   `json:"node_id" jsonschema:"node ID"`
-	Kind      *string  `json:"kind,omitempty" jsonschema:"new kind (omit to keep)"`
-	Label     *string  `json:"label,omitempty" jsonschema:"new label (omit to keep)"`
-	X         *float64 `json:"x,omitempty" jsonschema:"new x (omit to keep)"`
-	Y         *float64 `json:"y,omitempty" jsonschema:"new y (omit to keep)"`
-	Fill         *string `json:"fill,omitempty" jsonschema:"new fill hex; empty string clears it (omit to keep)"`
-	Stroke       *string `json:"stroke,omitempty" jsonschema:"new border hex; empty string clears it (omit to keep)"`
-	SubdiagramID *string `json:"subdiagram_id,omitempty" jsonschema:"link this node to a subdiagram by ID; empty string unlinks (omit to keep)"`
-	Port         *string `json:"port,omitempty" jsonschema:"interface role: 'in', 'out', or 'dep'; empty string clears it (omit to keep)"`
+	DiagramID    string   `json:"diagram_id" jsonschema:"diagram ID"`
+	NodeID       string   `json:"node_id" jsonschema:"node ID"`
+	Kind         *string  `json:"kind,omitempty" jsonschema:"new kind (omit to keep)"`
+	Label        *string  `json:"label,omitempty" jsonschema:"new label (omit to keep)"`
+	X            *float64 `json:"x,omitempty" jsonschema:"new x (omit to keep)"`
+	Y            *float64 `json:"y,omitempty" jsonschema:"new y (omit to keep)"`
+	Fill         *string  `json:"fill,omitempty" jsonschema:"new fill hex; empty string clears it (omit to keep)"`
+	Stroke       *string  `json:"stroke,omitempty" jsonschema:"new border hex; empty string clears it (omit to keep)"`
+	SubdiagramID *string  `json:"subdiagram_id,omitempty" jsonschema:"link this node to a subdiagram by ID; empty string unlinks (omit to keep)"`
+	Port         *string  `json:"port,omitempty" jsonschema:"interface role: 'in', 'out', or 'dep'; empty string clears it (omit to keep)"`
+}
+
+type setEdgeStyleInput struct {
+	DiagramID string `json:"diagram_id" jsonschema:"diagram ID"`
+	Style     string `json:"style" jsonschema:"edge routing style: 'organic' (flowing bezier, default) or 'synthetic' (orthogonal 90° routing, block-diagram/n8n style)"`
 }
 
 type createSubdiagramInput struct {
@@ -128,6 +140,39 @@ type deleteEdgeInput struct {
 	EdgeID    string `json:"edge_id" jsonschema:"edge ID"`
 }
 
+// ---------- batch graph build ----------
+
+type graphNodeInput struct {
+	Key    string   `json:"key" jsonschema:"a caller-chosen handle (e.g. 'web', 'db') used to reference this node from edges in the same call. Must be unique within the call."`
+	Kind   string   `json:"kind,omitempty" jsonschema:"shape kind: rect, circle, ellipse, rhombus, tri-up, tri-down, database, backend, frontend, queue, cache, user, cloud. Empty = rect."`
+	Label  string   `json:"label,omitempty" jsonschema:"label text (optional)"`
+	X      *float64 `json:"x,omitempty" jsonschema:"x position (optional; auto-placed when omitted — call auto_layout afterwards for a tidy result)"`
+	Y      *float64 `json:"y,omitempty" jsonschema:"y position (optional; auto-placed when omitted)"`
+	Fill   string   `json:"fill,omitempty" jsonschema:"fill color as a CSS hex (optional)"`
+	Stroke string   `json:"stroke,omitempty" jsonschema:"border color as a CSS hex (optional)"`
+	Port   string   `json:"port,omitempty" jsonschema:"interface role: 'in', 'out', or 'dep' (optional)"`
+}
+
+type graphEdgeInput struct {
+	Source     string `json:"source" jsonschema:"the key of a node defined in this call, or the id of an existing node"`
+	Target     string `json:"target" jsonschema:"the key of a node defined in this call, or the id of an existing node"`
+	Label      string `json:"label,omitempty" jsonschema:"edge label (optional)"`
+	SourcePort string `json:"source_port,omitempty" jsonschema:"bind the source end to an interface port id (optional)"`
+	TargetPort string `json:"target_port,omitempty" jsonschema:"bind the target end to an interface port id (optional)"`
+}
+
+type addGraphInput struct {
+	DiagramID string           `json:"diagram_id" jsonschema:"diagram ID"`
+	Nodes     []graphNodeInput `json:"nodes" jsonschema:"nodes to add, each with a unique 'key'"`
+	Edges     []graphEdgeInput `json:"edges,omitempty" jsonschema:"edges to add, referencing nodes by 'key' (new) or id (existing)"`
+}
+
+type addGraphOutput struct {
+	Keys      map[string]string `json:"keys"` // node key → created node id
+	NodeCount int               `json:"nodeCount"`
+	EdgeCount int               `json:"edgeCount"`
+}
+
 // ---------- tool registration ----------
 
 func (s *Server) registerTools() {
@@ -158,8 +203,18 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
 		Name:        "add_node",
-		Description: "Add a node to a diagram. Returns the new node's ID.",
+		Description: "Add a node to a diagram. x/y are optional — omit them to auto-place the node beside existing content. Returns the new node's ID.",
 	}, s.addNode)
+
+	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
+		Name:        "auto_layout",
+		Description: "Reposition a diagram's nodes into tidy left-to-right columns by dependency depth (the equivalent of the UI's Tidy up). Returns the updated diagram. Use after adding nodes/edges to get a clean layout without computing coordinates by hand.",
+	}, s.autoLayout)
+
+	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
+		Name:        "set_edge_style",
+		Description: "Set how a diagram's connections are drawn: 'organic' (flowing bezier, default) or 'synthetic' (orthogonal 90° routing, block-diagram/n8n style). Returns the updated diagram.",
+	}, s.setEdgeStyle)
 
 	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
 		Name:        "update_node",
@@ -180,6 +235,11 @@ func (s *Server) registerTools() {
 		Name:        "add_edge",
 		Description: "Connect two nodes with a directed edge. Returns the new edge's ID.",
 	}, s.addEdge)
+
+	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
+		Name:        "add_graph",
+		Description: "Build a whole subgraph in one call: add many nodes and edges at once. Each node carries a caller-chosen 'key'; edges reference nodes by that key (or by an existing node id). The efficient way to construct a diagram — follow with auto_layout for a tidy result. Returns the key→id map and counts.",
+	}, s.addGraph)
 
 	mcpsdk.AddTool(s.srv, &mcpsdk.Tool{
 		Name:        "update_edge",
@@ -237,14 +297,23 @@ func (s *Server) deleteDiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, i
 }
 
 func (s *Server) addNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in addNodeInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, idOutput{}, err
 	}
+	pos := diagrams.AutoPlace(d)
+	if in.X != nil {
+		pos.X = *in.X
+	}
+	if in.Y != nil {
+		pos.Y = *in.Y
+	}
 	node := diagrams.Node{
 		ID:       uuid.NewString(),
 		Kind:     in.Kind,
-		Position: diagrams.Position{X: in.X, Y: in.Y},
+		Position: pos,
 		Data:     diagrams.NodeData{Label: in.Label, Fill: in.Fill, Stroke: in.Stroke, Port: in.Port},
 	}
 	d.Nodes = append(d.Nodes, node)
@@ -254,7 +323,25 @@ func (s *Server) addNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in addN
 	return nil, idOutput{ID: node.ID}, nil
 }
 
+func (s *Server) autoLayout(ctx context.Context, _ *mcpsdk.CallToolRequest, in idInput) (*mcpsdk.CallToolResult, diagramOutput, error) {
+	d, err := s.svc.AutoLayout(ctx, in.ID)
+	if err != nil {
+		return nil, diagramOutput{}, err
+	}
+	return nil, diagramOutput{Diagram: d}, nil
+}
+
+func (s *Server) setEdgeStyle(ctx context.Context, _ *mcpsdk.CallToolRequest, in setEdgeStyleInput) (*mcpsdk.CallToolResult, diagramOutput, error) {
+	d, err := s.svc.SetEdgeStyle(ctx, in.DiagramID, in.Style)
+	if err != nil {
+		return nil, diagramOutput{}, err
+	}
+	return nil, diagramOutput{Diagram: d}, nil
+}
+
 func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in updateNodeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
@@ -300,6 +387,8 @@ func (s *Server) updateNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 }
 
 func (s *Server) deleteNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in deleteNodeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
@@ -325,6 +414,8 @@ func (s *Server) deleteNode(ctx context.Context, _ *mcpsdk.CallToolRequest, in d
 }
 
 func (s *Server) createSubdiagram(ctx context.Context, _ *mcpsdk.CallToolRequest, in createSubdiagramInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	parent, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, idOutput{}, err
@@ -359,6 +450,8 @@ func (s *Server) createSubdiagram(ctx context.Context, _ *mcpsdk.CallToolRequest
 }
 
 func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addEdgeInput) (*mcpsdk.CallToolResult, idOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, idOutput{}, err
@@ -378,7 +471,60 @@ func (s *Server) addEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in addE
 	return nil, idOutput{ID: edge.ID}, nil
 }
 
+func (s *Server) addGraph(ctx context.Context, _ *mcpsdk.CallToolRequest, in addGraphInput) (*mcpsdk.CallToolResult, addGraphOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	d, err := s.svc.Get(ctx, in.DiagramID)
+	if err != nil {
+		return nil, addGraphOutput{}, err
+	}
+	keys := make(map[string]string, len(in.Nodes))
+	for _, n := range in.Nodes {
+		pos := diagrams.AutoPlace(d) // sequential auto-place when coords omitted
+		if n.X != nil {
+			pos.X = *n.X
+		}
+		if n.Y != nil {
+			pos.Y = *n.Y
+		}
+		node := diagrams.Node{
+			ID:       uuid.NewString(),
+			Kind:     n.Kind,
+			Position: pos,
+			Data:     diagrams.NodeData{Label: n.Label, Fill: n.Fill, Stroke: n.Stroke, Port: n.Port},
+		}
+		if n.Key != "" {
+			keys[n.Key] = node.ID
+		}
+		d.Nodes = append(d.Nodes, node)
+	}
+	// Resolve an endpoint: a key from this call wins, else treat it as an
+	// existing node id (Update will reject it if it doesn't exist).
+	resolve := func(ref string) string {
+		if id, ok := keys[ref]; ok {
+			return id
+		}
+		return ref
+	}
+	for _, e := range in.Edges {
+		d.Edges = append(d.Edges, diagrams.Edge{
+			ID:         uuid.NewString(),
+			Source:     resolve(e.Source),
+			Target:     resolve(e.Target),
+			SourcePort: e.SourcePort,
+			TargetPort: e.TargetPort,
+			Label:      e.Label,
+		})
+	}
+	if _, err := s.svc.Update(ctx, d, ""); err != nil {
+		return nil, addGraphOutput{}, err
+	}
+	return nil, addGraphOutput{Keys: keys, NodeCount: len(in.Nodes), EdgeCount: len(in.Edges)}, nil
+}
+
 func (s *Server) updateEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in updateEdgeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err
@@ -403,6 +549,8 @@ func (s *Server) updateEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in u
 }
 
 func (s *Server) deleteEdge(ctx context.Context, _ *mcpsdk.CallToolRequest, in deleteEdgeInput) (*mcpsdk.CallToolResult, okOutput, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.svc.Get(ctx, in.DiagramID)
 	if err != nil {
 		return nil, okOutput{}, err

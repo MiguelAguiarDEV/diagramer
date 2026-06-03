@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,12 +64,26 @@ type Service interface {
 	Rename(ctx context.Context, id, newName string) (*Diagram, error)
 	// SetComponent flips whether the diagram is a library subdiagram.
 	SetComponent(ctx context.Context, id string, component bool) (*Diagram, error)
+	// SetEdgeStyle sets how connections are drawn ("organic" or "synthetic").
+	SetEdgeStyle(ctx context.Context, id, style string) (*Diagram, error)
+	// AutoLayout repositions the diagram's nodes into tidy dependency columns
+	// (the server-side equivalent of the UI's "Tidy up") and persists it.
+	AutoLayout(ctx context.Context, id string) (*Diagram, error)
 	Delete(ctx context.Context, id string) error
 }
 
 type service struct {
 	repo Repository
 	now  func() time.Time
+	// writeMu serializes mutating operations so a read-modify-write (notably
+	// Update's If-Match check-and-save) is atomic. Without it the optimistic
+	// concurrency check is a TOCTOU: two writers can both read the same ETag,
+	// both pass the check, and both save — a silent lost update. Reads (List,
+	// Get) intentionally don't take it. This protects in-process concurrency
+	// (multiple browser tabs / requests); cross-process writers (a separate
+	// -mcp process editing the same ./data) still race and would need file
+	// locking — an accepted limitation for a local single-user tool.
+	writeMu sync.Mutex
 }
 
 func NewService(repo Repository) Service {
@@ -80,10 +95,55 @@ func (s *service) List(ctx context.Context) ([]DiagramMeta, error) {
 }
 
 func (s *service) Get(ctx context.Context, id string) (*Diagram, error) {
-	return s.repo.Get(ctx, id)
+	d, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	pruneDanglingEdges(d)
+	return d, nil
+}
+
+// pruneDanglingEdges drops edges whose source/target references a node that no
+// longer exists. Such edges are invisible (the UI's render skips them) yet
+// would block saving, since validate() rejects unknown references. The HTTP
+// PUT path already prevents them, so they only arise in hand-edited or
+// imported ./data files — healing on read keeps those files usable. A new
+// slice is allocated only when something is removed, so a shared backing array
+// (e.g. an in-memory repo) is never mutated.
+func pruneDanglingEdges(d *Diagram) {
+	if d == nil || len(d.Edges) == 0 {
+		return
+	}
+	ids := make(map[string]struct{}, len(d.Nodes))
+	for i := range d.Nodes {
+		ids[d.Nodes[i].ID] = struct{}{}
+	}
+	dangling := false
+	for i := range d.Edges {
+		_, okS := ids[d.Edges[i].Source]
+		_, okT := ids[d.Edges[i].Target]
+		if !okS || !okT {
+			dangling = true
+			break
+		}
+	}
+	if !dangling {
+		return
+	}
+	kept := make([]Edge, 0, len(d.Edges))
+	for _, e := range d.Edges {
+		_, okS := ids[e.Source]
+		_, okT := ids[e.Target]
+		if okS && okT {
+			kept = append(kept, e)
+		}
+	}
+	d.Edges = kept
 }
 
 func (s *service) Create(ctx context.Context, name string, component bool) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, ErrInvalidName
@@ -112,6 +172,8 @@ func (s *service) Update(ctx context.Context, d *Diagram, ifMatch string) (*Diag
 	if d == nil {
 		return nil, errors.New("nil diagram")
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	existing, err := s.repo.Get(ctx, d.ID)
 	if err != nil {
 		return nil, err
@@ -143,6 +205,8 @@ func (s *service) Update(ctx context.Context, d *Diagram, ifMatch string) (*Diag
 }
 
 func (s *service) Rename(ctx context.Context, id, newName string) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return nil, ErrInvalidName
@@ -163,6 +227,8 @@ func (s *service) Rename(ctx context.Context, id, newName string) (*Diagram, err
 }
 
 func (s *service) SetComponent(ctx context.Context, id string, component bool) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	d, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -178,7 +244,55 @@ func (s *service) SetComponent(ctx context.Context, id string, component bool) (
 	return d, nil
 }
 
+// ErrInvalidEdgeStyle is returned for an unknown edge style.
+var ErrInvalidEdgeStyle = errors.New("invalid edge style")
+
+func (s *service) SetEdgeStyle(ctx context.Context, id, style string) (*Diagram, error) {
+	switch style {
+	case "", "organic":
+		style = "" // normalize the default away so it stays omitempty
+	case "synthetic":
+		// keep
+	default:
+		return nil, ErrInvalidEdgeStyle
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	d, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if d.EdgeStyle == style {
+		return d, nil
+	}
+	d.EdgeStyle = style
+	d.UpdatedAt = s.now()
+	if err := s.repo.Save(ctx, d); err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	return d, nil
+}
+
+func (s *service) AutoLayout(ctx context.Context, id string) (*Diagram, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	d, err := s.Get(ctx, id) // prunes dangling edges so the re-save stays clean
+	if err != nil {
+		return nil, err
+	}
+	if !AutoLayout(d) {
+		return d, nil // nothing to lay out
+	}
+	d.UpdatedAt = s.now()
+	if err := s.repo.Save(ctx, d); err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	return d, nil
+}
+
 func (s *service) Delete(ctx context.Context, id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	return s.repo.Delete(ctx, id)
 }
 

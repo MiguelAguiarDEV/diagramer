@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/MiguelAguiarDEV/diagramer/internal/diagrams"
@@ -133,13 +134,49 @@ func (r *JSONFileRepo) readIndex() ([]diagrams.DiagramMeta, error) {
 		}
 		return nil, fmt.Errorf("read index: %w", err)
 	}
-	var metas []diagrams.DiagramMeta
 	if len(b) == 0 {
 		return []diagrams.DiagramMeta{}, nil
 	}
+	var metas []diagrams.DiagramMeta
 	if err := json.Unmarshal(b, &metas); err != nil {
-		return nil, fmt.Errorf("unmarshal index: %w", err)
+		// A corrupt index would otherwise brick the whole app (can't list or
+		// boot). The diagram files are the source of truth, so rebuild from
+		// them instead of failing.
+		return r.rebuildIndex()
 	}
+	return metas, nil
+}
+
+// rebuildIndex reconstructs the index by scanning the diagram files. Used to
+// recover from a missing-but-present-yet-corrupt index. Unreadable/corrupt
+// individual files are skipped so one bad file can't block the rest.
+func (r *JSONFileRepo) rebuildIndex() ([]diagrams.DiagramMeta, error) {
+	entries, err := os.ReadDir(filepath.Join(r.root, "diagrams"))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []diagrams.DiagramMeta{}, nil
+		}
+		return nil, fmt.Errorf("rebuild index: %w", err)
+	}
+	metas := []diagrams.DiagramMeta{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if !idRegex.MatchString(id) {
+			continue // skips the .tmp leftovers and anything non-UUID
+		}
+		d, err := r.readDiagram(id)
+		if err != nil {
+			continue
+		}
+		metas = append(metas, diagrams.NewDiagramMeta(d))
+	}
+	// Best-effort persist of the repaired index; a read-only FS still yields a
+	// usable listing for this call.
+	_ = r.writeIndex(append([]diagrams.DiagramMeta(nil), metas...))
 	return metas, nil
 }
 
