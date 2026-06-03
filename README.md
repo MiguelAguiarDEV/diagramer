@@ -16,7 +16,8 @@ Build composable system diagrams in a tab you can close — your data stays on d
 
 <img src="docs/media/demo.gif" alt="diagramer demo — create nodes, turn one into a subdiagram, add typed ports, wire them together" width="820"/>
 
-<sub>↑ 50-second walkthrough: create nodes → make one a subdiagram → add typed ports → wire it all together.</sub>
+<sub>↑ 50-second walkthrough: create nodes → make one a subdiagram → add typed ports → wire it all together.<br/>
+<em>AI-generated illustrative animation (Remotion + Claude) — recreates the real app's UI for pacing; it isn't a screen recording.</em></sub>
 
 </div>
 
