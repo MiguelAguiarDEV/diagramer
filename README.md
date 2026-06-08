@@ -5,6 +5,7 @@
 **A local-first, AI-first diagram tool. One Go binary. Zero cloud.**
 
 [![Made with Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![CI](https://github.com/MiguelAguiarDEV/diagramer/actions/workflows/ci.yml/badge.svg)](https://github.com/MiguelAguiarDEV/diagramer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 [![MCP](https://img.shields.io/badge/MCP-server-7c3aed)](https://modelcontextprotocol.io)
 [![Single binary](https://img.shields.io/badge/single-binary-success)](#install)
