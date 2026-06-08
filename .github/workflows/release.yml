@@ -1,0 +1,37 @@
+name: release
+
+# Triggered by a SemVer tag (e.g. `git tag v0.1.0 && git push --tags`).
+# GoReleaser cross-compiles a static binary for darwin/linux/windows
+# (amd64 + arm64 except windows-arm64), publishes them as tar.gz/zip
+# archives with a checksums.txt, and drafts the GitHub Release with an
+# auto-generated changelog grouped by feat/fix.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write  # needed to publish the GitHub Release
+
+jobs:
+  goreleaser:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # GoReleaser needs the full history to build the changelog.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

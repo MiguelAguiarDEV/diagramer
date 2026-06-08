@@ -79,6 +79,18 @@ Open <http://127.0.0.1:7777>. Hit `+ Add`, draw some boxes, drag the **+** handl
 
 ## Install
 
+**Prebuilt binary** (recommended) — grab the right archive for your platform from the [latest release](https://github.com/MiguelAguiarDEV/diagramer/releases/latest):
+
+```sh
+# macOS / Linux
+curl -L https://github.com/MiguelAguiarDEV/diagramer/releases/latest/download/diagramer_<version>_<os>_<arch>.tar.gz \
+  | tar -xz && ./diagramer
+```
+
+On Windows, download the `.zip`, extract, and run `diagramer.exe`.
+
+**From source** (Go 1.25+):
+
 ```sh
 # build a static binary (≈12 MB, no runtime deps)
 make build
