@@ -5,7 +5,7 @@
 **A local-first, AI-first diagram tool. One Go binary. Zero cloud.**
 
 [![Made with Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
+[![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm%20NC%201.0.0-c87f4d.svg)](#license)
 [![MCP](https://img.shields.io/badge/MCP-server-7c3aed)](https://modelcontextprotocol.io)
 [![Single binary](https://img.shields.io/badge/single-binary-success)](#install)
 [![Stars](https://img.shields.io/github/stars/MiguelAguiarDEV/diagramer?style=social)](https://github.com/MiguelAguiarDEV/diagramer/stargazers)
@@ -278,7 +278,18 @@ Issues and PRs welcome. A few principles to keep in mind ([`CLAUDE.md`](CLAUDE.m
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+**[PolyForm Noncommercial 1.0.0](LICENSE)** — source-available, **not open source** under the OSI definition.
+
+In plain language:
+
+- ✅ Read it, learn from it, fork it, contribute to it.
+- ✅ Use it for **personal, educational, research, hobby, or non-profit** purposes.
+- ✅ Run it inside a charity, school, government, or other non-commercial organization.
+- ❌ **No commercial use without a separate license** — that means no offering it as a paid product or service, no using it as part of a product or service you charge for.
+
+If you'd like a commercial license, [open an issue](https://github.com/MiguelAguiarDEV/diagramer/issues/new) or reach out.
+
+> The full license text is in [LICENSE](LICENSE). The license itself is the source of truth; the bullets above are a summary, not a substitute.
 
 ---
 
