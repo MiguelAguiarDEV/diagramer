@@ -17,6 +17,30 @@ function iconWidth(kind) {
   return k && k.icon ? ICON_SIZE + ICON_GAP : 0;
 }
 
+// pickReadableInk picks a label/icon color with enough contrast against `hex`
+// using the WCAG relative-luminance formula. The 0.179 threshold is the sRGB
+// point where black and white contrast-ratio against the background cross —
+// picking the brighter side guarantees ≥4.5:1 against either a very dark or
+// very light fill, so labels stay readable no matter what color a node is
+// painted (via the context menu, an MCP tool, or an imported JSON).
+// `light` and `dark` default to the same near-white / near-black we use in the
+// dark theme; callers can override (e.g. to match a slightly muted icon tone).
+const _hexInk = /^#?([\da-f]{3}|[\da-f]{6})$/i;
+function pickReadableInk(hex, light = "#f3f4f6", dark = "#1f2937") {
+  const m = _hexInk.exec(hex || "");
+  if (!m) return light; // unknown format → keep the previous "force light" behavior
+  let h = m[1];
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const lin = (c) => {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const L = 0.2126 * lin(parseInt(h.slice(0, 2), 16))
+          + 0.7152 * lin(parseInt(h.slice(2, 4), 16))
+          + 0.0722 * lin(parseInt(h.slice(4, 6), 16));
+  return L > 0.179 ? dark : light;
+}
+
 // nodeSize returns the bbox the node occupies. Most shapes keep the classic
 // (variable width, fixed 44 height); symmetric shapes (circle, rhombus) use a
 // square bbox; equilateral triangles use side × side·√3/2. All grow with the
@@ -1225,12 +1249,15 @@ function render() {
       transform: `translate(${n.position.x},${n.position.y})`,
     });
     // Per-node colors ride on inherited CSS custom properties so the default
-    // hover/selected stroke rules still win when those states are active. The
-    // color presets are all dark fills, so a custom fill also forces light
-    // label text — otherwise the theme's dark text is unreadable on it.
+    // hover/selected stroke rules still win when those states are active. A
+    // custom fill swaps the label + icon colors to whichever of near-white /
+    // near-black contrasts better with that fill (WCAG luminance) — so an MCP
+    // tool or imported diagram picking a light fill no longer hides the text.
     if (n.data.fill) {
       g.style.setProperty("--node-fill", n.data.fill);
-      g.style.setProperty("--node-text", "#f3f4f6");
+      const ink = pickReadableInk(n.data.fill);
+      g.style.setProperty("--node-text", ink);
+      g.style.setProperty("--node-icon", ink);
     }
     if (n.data.stroke) g.style.setProperty("--node-stroke", n.data.stroke);
     const { w, h } = nodeSize(n);
