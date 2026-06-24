@@ -1,0 +1,37 @@
+name: ci
+
+# Runs the Go test suite on every push to main and every PR targeting main.
+# Fast feedback (~30s with the cache warm). The Playwright E2E suite is heavier
+# (installs chromium, drives a real browser) and lives in a separate workflow
+# so it doesn't block the common case.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: make test

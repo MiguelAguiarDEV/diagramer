@@ -16,7 +16,22 @@ import (
 	"github.com/MiguelAguiarDEV/diagramer/internal/storage"
 )
 
+// Stamped by GoReleaser via -ldflags "-X main.version=..." at release time.
+// Stays "dev" for plain `go build` / `go run` so local work doesn't lie.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	// `diagramer --version` short-circuits before any flag parsing so it works
+	// regardless of subcommand layout.
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-version" || os.Args[1] == "version") {
+		fmt.Printf("diagramer %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
+
 	// One-shot CLI subcommands operate directly on the data dir (no server).
 	// Anything else (or no args) falls through to running the server.
 	if len(os.Args) > 1 {
