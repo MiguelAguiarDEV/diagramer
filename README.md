@@ -5,6 +5,7 @@
 **A local-first, AI-first diagram tool. One Go binary. Zero cloud.**
 
 [![Made with Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![CI](https://github.com/MiguelAguiarDEV/diagramer/actions/workflows/ci.yml/badge.svg)](https://github.com/MiguelAguiarDEV/diagramer/actions/workflows/ci.yml)
 [![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm%20NC%201.0.0-c87f4d.svg)](#license)
 [![MCP](https://img.shields.io/badge/MCP-server-7c3aed)](https://modelcontextprotocol.io)
 [![Single binary](https://img.shields.io/badge/single-binary-success)](#install)
@@ -77,6 +78,18 @@ make run          # or: go run ./cmd/diagramer
 Open <http://127.0.0.1:7777>. Hit `+ Add`, draw some boxes, drag the **+** handle on a node to connect them. That's it.
 
 ## Install
+
+**Prebuilt binary** (recommended) — grab the right archive for your platform from the [latest release](https://github.com/MiguelAguiarDEV/diagramer/releases/latest):
+
+```sh
+# macOS / Linux
+curl -L https://github.com/MiguelAguiarDEV/diagramer/releases/latest/download/diagramer_<version>_<os>_<arch>.tar.gz \
+  | tar -xz && ./diagramer
+```
+
+On Windows, download the `.zip`, extract, and run `diagramer.exe`.
+
+**From source** (Go 1.25+):
 
 ```sh
 # build a static binary (≈12 MB, no runtime deps)
